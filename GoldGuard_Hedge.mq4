@@ -184,9 +184,31 @@ input double    MidBreak_MaxCandlePips        = 250;
 input double    MidBreak_MaxSlPips            = 150;
 input double    MidBreak_BreakBufferPips      = 2;
 input double    MidBreak_MinTpPips            = 20;
-input double    MidBreak_MinRR                = 1.0;
+input double    MidBreak_MinRR                = 1.5;
 input bool      MidBreak_UseBreakEven         = true;
 input double    MidBreak_BE_TriggerPips       = 100;
+input bool      MidBreak_UseGlobalFilters     = true;   // news filter + spread + weekend + midnight block (isti kako grid)
+input bool      MidBreak_UsePrevDayLevels     = true;   // Mid/TP nivoa od prethodniot den (fiksni), false = DL_UseCurrentDay logika
+input bool      MidBreak_UsePendingStop       = true;   // pending Buy/Sell Stop na high/low+buffer namesto market vlez
+input int       MidBreak_PendingExpiryBars    = 2;      // pending se brise po tolku sveki
+input bool      MidBreak_UseAtrFilter         = true;
+input int       MidBreak_AtrPeriod            = 14;
+input double    MidBreak_MinBodyATR           = 0.6;    // telo >= X * ATR(MidBreak_Timeframe)
+input double    MidBreak_MaxClosePosPct       = 30;     // zatvoranje vo gornite/dolnite X% od sveketa
+input bool      MidBreak_UseTrendFilter       = true;
+input ENUM_TIMEFRAMES MidBreak_TrendTF        = PERIOD_H4;
+input int       MidBreak_TrendEmaPeriod       = 50;
+input bool      MidBreak_UseSessionFilter     = true;
+input int       MidBreak_SessionStartHour     = 8;      // server time
+input int       MidBreak_SessionEndHour       = 17;
+input bool      MidBreak_UseExhaustedDayFilter= true;
+input int       MidBreak_DailyAtrPeriod       = 14;
+input double    MidBreak_MaxDayRangeATR       = 1.2;    // ne vleguva ako denesniot opseg > X * ATR(D1)
+input bool      MidBreak_OneTradePerDayDir    = true;   // max 1 trejd dnevno po nasoka (i posle SL)
+input bool      MidBreak_UseAtrBE             = true;   // BE trigger = MidBreak_BE_ATR * ATR namesto fiksni pips
+input double    MidBreak_BE_ATR               = 1.0;
+input bool      MidBreak_UseSwingTrail        = true;   // posle BE: trail SL pod/nad posledniot swing low/high na MidBreak_Timeframe
+input int       MidBreak_TrailSwingBars       = 3;      // swing = najnizok low (BUY) / najvisok high (SELL) od poslednite N zatvoreni sveki
 
 input string    Input_Rescue                  = "========== STRATEGY 3: RESCUE MODULE ==========";
 input bool      Enable_Rescue                 = false;
@@ -231,6 +253,9 @@ datetime lastMidSignalTime = 0;
 int      midSignalDir = -1;
 double   midSignalHigh = 0;
 double   midSignalLow = 0;
+datetime midLastBuyDay = 0, midLastSellDay = 0;   // date-only stamp; 1 trade/day/dir
+int      midPendingTicket = 0;
+datetime midPendingPlacedBar = 0;
 
 int ResolveTimeframe(ENUM_TIMEFRAMES tf)
   {
@@ -1764,7 +1789,7 @@ void RemoveDailyLevels()
 //+------------------------------------------------------------------+
 double GetDailyLevelValue(int type)
   {
-   int dayShift = DL_UseCurrentDay ? 0 : 1;
+   int dayShift = MidBreak_UsePrevDayLevels ? 1 : (DL_UseCurrentDay ? 0 : 1);
    dayShift += DL_ShiftBars;
    double dHigh = iHigh(Symbol(), PERIOD_D1, dayShift);
    double dLow  = iLow(Symbol(), PERIOD_D1, dayShift);
@@ -1819,23 +1844,84 @@ void CheckMidBreakoutSignal()
    
    if(bodyPips >= MidBreak_MinCandlePips && totalPips <= MidBreak_MaxCandlePips)
      {
-      if(open < dMid && close > dMid)
+      int dir = -1;
+      if(open < dMid && close > dMid)       dir = OP_BUY;
+      else if(open > dMid && close < dMid) dir = OP_SELL;
+
+      if(dir >= 0)
         {
-         // Bullish Breakout
-         midSignalDir = OP_BUY;
-         midSignalHigh = high;
-         midSignalLow = low;
-         lastMidSignalTime = candleTime;
-         Print("Mid Breakout: BUY Signal Detected at ", DoubleToString(close, Digits));
-        }
-      else if(open > dMid && close < dMid)
-        {
-         // Bearish Breakout
-         midSignalDir = OP_SELL;
-         midSignalHigh = high;
-         midSignalLow = low;
-         lastMidSignalTime = candleTime;
-         Print("Mid Breakout: SELL Signal Detected at ", DoubleToString(close, Digits));
+         string skipReason = "";
+
+         // ATR filter: silno telo + zatvoranje kaj ekstremot na svekjata
+         if(MidBreak_UseAtrFilter)
+           {
+            double atr = iATR(Symbol(), MidBreak_Timeframe, MidBreak_AtrPeriod, 1);
+            if(atr <= 0 || bodyPips * pipSize < MidBreak_MinBodyATR * atr)
+               skipReason = "ATR filter (body < " + DoubleToString(MidBreak_MinBodyATR, 2) + "xATR)";
+            else if(dir == OP_BUY && (high - close) > (high - low) * MidBreak_MaxClosePosPct / 100.0)
+               skipReason = "close not in top " + DoubleToString(MidBreak_MaxClosePosPct, 0) + "% of candle";
+            else if(dir == OP_SELL && (close - low) > (high - low) * MidBreak_MaxClosePosPct / 100.0)
+               skipReason = "close not in bottom " + DoubleToString(MidBreak_MaxClosePosPct, 0) + "% of candle";
+           }
+
+         // Trend filter: samo vo nasoka na EMA na MidBreak_TrendTF
+         if(skipReason == "" && MidBreak_UseTrendFilter)
+           {
+            double ema = iMA(Symbol(), MidBreak_TrendTF, MidBreak_TrendEmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+            if(dir == OP_BUY && close <= ema)       skipReason = "trend filter (close <= EMA)";
+            else if(dir == OP_SELL && close >= ema) skipReason = "trend filter (close >= EMA)";
+           }
+
+         // Session filter po server vreme
+         if(skipReason == "" && MidBreak_UseSessionFilter)
+           {
+            int hr = TimeHour(candleTime);
+            bool inSession = (MidBreak_SessionStartHour <= MidBreak_SessionEndHour)
+                             ? (hr >= MidBreak_SessionStartHour && hr < MidBreak_SessionEndHour)
+                             : (hr >= MidBreak_SessionStartHour || hr < MidBreak_SessionEndHour);
+            if(!inSession) skipReason = "outside session hours";
+           }
+
+         // Exhausted day: denesniot opseg veke go minal dnevniot ATR
+         if(skipReason == "" && MidBreak_UseExhaustedDayFilter)
+           {
+            double dayRange = iHigh(Symbol(), PERIOD_D1, 0) - iLow(Symbol(), PERIOD_D1, 0);
+            double atrD = iATR(Symbol(), PERIOD_D1, MidBreak_DailyAtrPeriod, 1);
+            if(atrD > 0 && dayRange > MidBreak_MaxDayRangeATR * atrD)
+               skipReason = "day range already > " + DoubleToString(MidBreak_MaxDayRangeATR, 2) + "xATR(D1)";
+           }
+
+         // Max 1 trejd dnevno po nasoka (i posle SL)
+         if(skipReason == "" && MidBreak_OneTradePerDayDir)
+           {
+            datetime today = TimeCurrent() - TimeCurrent() % 86400;
+            if(dir == OP_BUY && midLastBuyDay == today)        skipReason = "BUY already traded today";
+            else if(dir == OP_SELL && midLastSellDay == today) skipReason = "SELL already traded today";
+           }
+
+         if(skipReason != "")
+           {
+            Print("Mid Breakout: ", (dir == OP_BUY ? "BUY" : "SELL"), " signal skipped: ", skipReason);
+            lastMidSignalTime = candleTime;
+           }
+         else if(dir == OP_BUY)
+           {
+            // Bullish Breakout
+            midSignalDir = OP_BUY;
+            midSignalHigh = high;
+            midSignalLow = low;
+            lastMidSignalTime = candleTime;
+            Print("Mid Breakout: BUY Signal Detected at ", DoubleToString(close, Digits));
+           }
+         else
+           {
+            // Bearish Breakout
+            midSignalDir = OP_SELL;
+            midSignalHigh = high;
+            midSignalLow = low;
+            lastMidSignalTime = candleTime;
+            Print("Mid Breakout: SELL Signal Detected at ", DoubleToString(close, Digits));
+           }
         }
      }
   }
@@ -1845,7 +1931,12 @@ void ProcessMidBreakout()
    if(!Enable_MidBreakout) return;
    if(CountMidBreakoutOrders() > 0) return; // Only 1 active trade at a time
    if(midSignalDir == -1) return;           // No active signal
-   
+
+   // Isti globalni filtri kako grid: news + spread/weekend/midnight block.
+   // Signalot ostava zhiv - samo odlozhi vlezot.
+   if(MidBreak_UseGlobalFilters && (NewsBlocksFreshSeries() || !CanOpenFirstEntry()))
+      return;
+
    // Expire signal if a new candle closed
    datetime currentCandleTime = iTime(Symbol(), MidBreak_Timeframe, 0);
    if(currentCandleTime > lastMidSignalTime + PeriodSeconds(MidBreak_Timeframe))
@@ -1856,9 +1947,58 @@ void ProcessMidBreakout()
      
    RefreshRates();
    double buffer = MidBreak_BreakBufferPips * pipSize;
-   
-   if(midSignalDir == OP_BUY && Ask >= midSignalHigh + buffer)
+   datetime today = TimeCurrent() - TimeCurrent() % 86400;
+
+   if(midSignalDir == OP_BUY)
      {
+      // Pending Buy Stop na high+buffer (ako cenata veke e nad entry -> market pat podolu)
+      if(MidBreak_UsePendingStop && Ask < midSignalHigh + buffer)
+        {
+         double entry = NormalizeDouble(midSignalHigh + buffer, Digits);
+         double sl = NormalizeDouble(midSignalLow, Digits);
+         if((entry - sl) / pipSize > MidBreak_MaxSlPips)
+            sl = NormalizeDouble(entry - (MidBreak_MaxSlPips * pipSize), Digits);
+         double tp = NormalizeDouble(GetDailyLevelValue(2), Digits); // MidHigh
+         if(tp - entry < MidBreak_MinTpPips * pipSize)
+            tp = NormalizeDouble(GetDailyLevelValue(1), Digits); // High
+         double risk = entry - sl;
+         double reward = tp - entry;
+         if(reward >= MidBreak_MinTpPips * pipSize && reward >= risk * MidBreak_MinRR)
+           {
+            if(entry - Ask >= MinStopDistance())
+              {
+               int ticket = OrderSend(Symbol(), OP_BUYSTOP, NormalizeLots(MidBreak_Lot), entry, SlippagePoints, sl, tp, "Mid Breakout BUY", MidBreak_Magic, 0, clrBlue);
+               if(ticket > 0)
+                 {
+                  Print("Mid Breakout: BUY STOP placed. Ticket: ", ticket, " @ ", DoubleToString(entry, Digits));
+                  midPendingTicket = ticket;
+                  midPendingPlacedBar = iTime(Symbol(), MidBreak_Timeframe, 0);
+                  midLastBuyDay = today;
+                  midSignalDir = -1;
+                 }
+              }
+            else
+              {
+               static datetime lastBuyStopSkip = 0;
+               if(TimeCurrent() != lastBuyStopSkip)
+                 {
+                  Print("Mid Breakout BUY STOP skipped: entry too close to price");
+                  lastBuyStopSkip = TimeCurrent();
+                 }
+              }
+           }
+         else
+           {
+            static datetime lastBuyPendSkip = 0;
+            if(TimeCurrent() != lastBuyPendSkip)
+              {
+               Print("Mid Breakout BUY STOP skipped: Bad Risk/Reward (Risk: ", DoubleToString(risk/pipSize, 1), " pips, Reward: ", DoubleToString(reward/pipSize, 1), " pips)");
+               lastBuyPendSkip = TimeCurrent();
+              }
+           }
+        }
+      else if(Ask >= midSignalHigh + buffer)
+        {
       double sl = NormalizeDouble(midSignalLow, Digits); 
       
       // Limit SL to MaxSlPips
@@ -1881,6 +2021,7 @@ void ProcessMidBreakout()
          if(ticket > 0) 
            {
             Print("Mid Breakout: BUY Executed. Ticket: ", ticket);
+            midLastBuyDay = today;
             midSignalDir = -1; // Reset signal after successful entry
            }
         }
@@ -1894,9 +2035,58 @@ void ProcessMidBreakout()
             lastBuySkip = TimeCurrent();
            }
         }
+        }
      }
-   else if(midSignalDir == OP_SELL && Bid <= midSignalLow - buffer)
+   else if(midSignalDir == OP_SELL)
      {
+      // Pending Sell Stop na low-buffer (ako cenata veke e pod entry -> market pat podolu)
+      if(MidBreak_UsePendingStop && Bid > midSignalLow - buffer)
+        {
+         double entry = NormalizeDouble(midSignalLow - buffer, Digits);
+         double sl = NormalizeDouble(midSignalHigh, Digits);
+         if((sl - entry) / pipSize > MidBreak_MaxSlPips)
+            sl = NormalizeDouble(entry + (MidBreak_MaxSlPips * pipSize), Digits);
+         double tp = NormalizeDouble(GetDailyLevelValue(4), Digits); // LowMid
+         if(entry - tp < MidBreak_MinTpPips * pipSize)
+            tp = NormalizeDouble(GetDailyLevelValue(5), Digits); // Low
+         double risk = sl - entry;
+         double reward = entry - tp;
+         if(reward >= MidBreak_MinTpPips * pipSize && reward >= risk * MidBreak_MinRR)
+           {
+            if(Bid - entry >= MinStopDistance())
+              {
+               int ticket = OrderSend(Symbol(), OP_SELLSTOP, NormalizeLots(MidBreak_Lot), entry, SlippagePoints, sl, tp, "Mid Breakout SELL", MidBreak_Magic, 0, clrRed);
+               if(ticket > 0)
+                 {
+                  Print("Mid Breakout: SELL STOP placed. Ticket: ", ticket, " @ ", DoubleToString(entry, Digits));
+                  midPendingTicket = ticket;
+                  midPendingPlacedBar = iTime(Symbol(), MidBreak_Timeframe, 0);
+                  midLastSellDay = today;
+                  midSignalDir = -1;
+                 }
+              }
+            else
+              {
+               static datetime lastSellStopSkip = 0;
+               if(TimeCurrent() != lastSellStopSkip)
+                 {
+                  Print("Mid Breakout SELL STOP skipped: entry too close to price");
+                  lastSellStopSkip = TimeCurrent();
+                 }
+              }
+           }
+         else
+           {
+            static datetime lastSellPendSkip = 0;
+            if(TimeCurrent() != lastSellPendSkip)
+              {
+               Print("Mid Breakout SELL STOP skipped: Bad Risk/Reward (Risk: ", DoubleToString(risk/pipSize, 1), " pips, Reward: ", DoubleToString(reward/pipSize, 1), " pips)");
+               lastSellPendSkip = TimeCurrent();
+              }
+           }
+        }
+      else if(Bid <= midSignalLow - buffer)
+        {
       double sl = NormalizeDouble(midSignalHigh, Digits);
       
       // Limit SL to MaxSlPips
@@ -1919,6 +2109,7 @@ void ProcessMidBreakout()
          if(ticket > 0) 
            {
             Print("Mid Breakout: SELL Executed. Ticket: ", ticket);
+            midLastSellDay = today;
             midSignalDir = -1; // Reset signal after successful entry
            }
         }
@@ -1931,6 +2122,27 @@ void ProcessMidBreakout()
             Print("Mid Breakout SELL skipped: Bad Risk/Reward (Risk: ", DoubleToString(risk/pipSize, 1), " pips, Reward: ", DoubleToString(reward/pipSize, 1), " pips)");
             lastSellSkip = TimeCurrent();
            }
+        }
+        }
+     }
+  }
+
+// Brise istareli MidBreak pending orders (ne se potpira na midPendingTicket -
+// prezhiveuva i restart na terminalot bidejki bara po OrdersTotal).
+void ExpireMidBreakoutPending()
+  {
+   if(!Enable_MidBreakout || !MidBreak_UsePendingStop) return;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MidBreak_Magic) continue;
+      if(OrderType() != OP_BUYSTOP && OrderType() != OP_SELLSTOP) continue;
+      if(iBarShift(Symbol(), MidBreak_Timeframe, OrderOpenTime()) >= MidBreak_PendingExpiryBars)
+        {
+         int ticket = OrderTicket();
+         if(OrderDelete(ticket))
+            Print("Mid Breakout: pending #", ticket, " expired after ", MidBreak_PendingExpiryBars, " bars");
+         if(midPendingTicket == ticket) midPendingTicket = 0;
         }
      }
   }
@@ -1950,26 +2162,77 @@ void ManageMidBreakout()
             double sl = OrderStopLoss();
             
             if(tp <= 0) continue; // No TP set
-            
+
+            // BE trigger: ATR-baziran ili fiksni pips
+            double beTrigger = MidBreak_UseAtrBE
+                               ? MidBreak_BE_ATR * iATR(Symbol(), MidBreak_Timeframe, MidBreak_AtrPeriod, 1)
+                               : MidBreak_BE_TriggerPips * pipSize;
+
             if(OrderType() == OP_BUY)
               {
-               if(Bid >= openPrice + (MidBreak_BE_TriggerPips * pipSize)) // Fixed pips threshold
+               if(Bid >= openPrice + beTrigger)
                  {
                   if(sl < openPrice) // If SL is still below entry
                     {
                      if(OrderModify(OrderTicket(), openPrice, openPrice, tp, 0, clrBlue))
+                       {
                         Print("Mid Breakout: BUY StopLoss moved to Break-Even");
+                        sl = openPrice;
+                       }
+                    }
+                 }
+               // Swing trail: posle BE, SL pod najnizok low od poslednite N zatvoreni sveki
+               if(MidBreak_UseSwingTrail && sl >= openPrice && sl > 0)
+                 {
+                  static datetime lastBuyTrailBar = 0;
+                  datetime trailBar = iTime(Symbol(), MidBreak_Timeframe, 0);
+                  if(trailBar != lastBuyTrailBar)
+                    {
+                     lastBuyTrailBar = trailBar;
+                     int li = iLowest(Symbol(), MidBreak_Timeframe, MODE_LOW, MidBreak_TrailSwingBars, 1);
+                     if(li >= 0)
+                       {
+                        double swing = NormalizeDouble(iLow(Symbol(), MidBreak_Timeframe, li), Digits);
+                        if(swing > sl + Point && Bid - swing >= MinStopDistance())
+                          {
+                           if(OrderModify(OrderTicket(), openPrice, swing, tp, 0, clrBlue))
+                              Print("Mid Breakout: BUY SL trailed to swing low ", DoubleToString(swing, Digits));
+                          }
+                       }
                     }
                  }
               }
             else if(OrderType() == OP_SELL)
               {
-               if(Ask <= openPrice - (MidBreak_BE_TriggerPips * pipSize)) // Fixed pips threshold
+               if(Ask <= openPrice - beTrigger)
                  {
                   if(sl > openPrice || sl == 0) // If SL is still above entry
                     {
                      if(OrderModify(OrderTicket(), openPrice, openPrice, tp, 0, clrRed))
+                       {
                         Print("Mid Breakout: SELL StopLoss moved to Break-Even");
+                        sl = openPrice;
+                       }
+                    }
+                 }
+               // Swing trail: posle BE, SL nad najvisok high od poslednite N zatvoreni sveki
+               if(MidBreak_UseSwingTrail && sl > 0 && sl <= openPrice)
+                 {
+                  static datetime lastSellTrailBar = 0;
+                  datetime trailBar = iTime(Symbol(), MidBreak_Timeframe, 0);
+                  if(trailBar != lastSellTrailBar)
+                    {
+                     lastSellTrailBar = trailBar;
+                     int hi = iHighest(Symbol(), MidBreak_Timeframe, MODE_HIGH, MidBreak_TrailSwingBars, 1);
+                     if(hi >= 0)
+                       {
+                        double swing = NormalizeDouble(iHigh(Symbol(), MidBreak_Timeframe, hi), Digits);
+                        if(swing < sl - Point && swing - Ask >= MinStopDistance())
+                          {
+                           if(OrderModify(OrderTicket(), openPrice, swing, tp, 0, clrRed))
+                              Print("Mid Breakout: SELL SL trailed to swing high ", DoubleToString(swing, Digits));
+                          }
+                       }
                     }
                  }
               }
@@ -2193,6 +2456,7 @@ void OnTick()
          // Повици за Mid Breakout Стратегијата
          CheckMidBreakoutSignal();
          ProcessMidBreakout();
+         ExpireMidBreakoutPending();
          ManageMidBreakout();
          
          if(segment1 == true)

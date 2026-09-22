@@ -1290,6 +1290,7 @@ bool     AIVisionClaimLock();
 void     AIVisionReleaseLock();
 string   AIVisionLockName();
 string   AIVisionCapture(bool automatic = false);
+bool     AIVisionShotDue();
 void     AIComputeGate();
 string   DetectMarketRegime(string &why);
 bool     PassFinalSignalJudge(int scoutDir, double entry, double sl, double tp2,
@@ -1382,6 +1383,7 @@ string   ChatSanitize(string text);
 string   ChatVisionCapture();
 bool     ChatVisionWaitChart(long cid, int tf);
 bool     ChatVisionIsOwnedChart(long cid);
+int      ChatVisionSweepTemps();
 bool     ChatVisionDrawDailyLevels(long cid);
 string   ChatVisionJson();
 bool     ChatReadVisionShot(string file, uchar &data[]);
@@ -9293,7 +9295,7 @@ int AIVisionSweepOrphans(long keepCid)
    for (int i = 0; i < n; i++)
    {
       if (ids[i] == ChartID() || ids[i] == keepCid) continue;
-      if (!AIVisionIsOurs(ids[i])) continue;
+      if (!ChatVisionIsOwnedChart(ids[i])) continue;
       ChartClose(ids[i]);
       closed++;
    }
@@ -9556,10 +9558,24 @@ string AIVisionFilesOnDisk()
    return arr;
 }
 
+bool AIVisionShotDue()
+{
+   int shotEvery = (AI_VisionEverySec > 0) ? AI_VisionEverySec
+                                           : ((AI_ScanEverySec > 0) ? AI_ScanEverySec : 90);
+   if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
+   if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
+   long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
+   return !(g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0);
+}
+
 // Snima PNG za sekoj vision chart. Vrakja JSON array so relativni pateki.
 string AIVisionCapture(bool automatic)
 {
-   if (automatic && AiWeekendSkip()) return "";
+   if (automatic && AiWeekendSkip())
+   {
+      if (g_visCount > 0) AIVisionCloseAfterCapture();
+      return "";
+   }
    if (!AI_VisionEyes || g_visCount <= 0) return "";
 
    // THROTTLE: slikaj SAMO ednas na sekoi X sekundi. Bez ova, dva razlichni povici
@@ -9569,10 +9585,11 @@ string AIVisionCapture(bool automatic)
    if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
    if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
    long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
-   if (g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0)
+   if (!AIVisionShotDue())
    {
       Print(">>> [Vision] SHOT SKIP (throttle): slikite se stari ", shotAge, "s od ",
             shotEvery, "s -> koristam postoechki sliki.");
+      AIVisionCloseAfterCapture();
       return g_visFiles;
    }
 
@@ -10496,7 +10513,8 @@ void AIScanMarketNow()
    static bool visOpenPauseLogged = false;
    datetime visNow = TimeLocal();
    if (visNow <= 0) visNow = TimeCurrent();
-   if (AI_VisionEyes && g_visCount == 0 && !IsTesting() && !IsOptimization() &&
+   bool visWillShoot = AI_VisionEyes && (!AI_VisionOnlyOnSetup || g_gatePass) && AIVisionShotDue();
+   if (visWillShoot && g_visCount == 0 && !IsTesting() && !IsOptimization() &&
        (visOpenRetryAfter <= 0 || visNow >= visOpenRetryAfter))
    {
       AIVisionOpenCharts();
@@ -18517,6 +18535,32 @@ bool ChatVisionIsOwnedChart(long cid)
    return (AIVisionIsOurs(cid) || StringFind(comment, CHAT_VISION_TAG, 0) >= 0);
 }
 
+// Zatvora SAMO privremenite chat-vision chartovi (CHAT_VISION_TAG); EYE chartovite
+// gi zatvara nivniot sopstven pat (AIVisionCloseAfterCapture / AIVisionSweepOrphans).
+int ChatVisionSweepTemps()
+{
+   int closed = 0;
+   long ids[64];
+   ArrayInitialize(ids, -1);
+   int n = 0;
+   long c = ChartFirst();
+   while (c >= 0 && n < 64)
+   {
+      ids[n] = c; n++;
+      c = ChartNext(c);
+   }
+   for (int i = 0; i < n; i++)
+   {
+      if (ids[i] == ChartID()) continue;
+      string cm = ChartGetString(ids[i], CHART_COMMENT);
+      if (StringFind(cm, CHAT_VISION_TAG, 0) < 0) continue;
+      ChartClose(ids[i]);
+      closed++;
+   }
+   if (closed > 0) Print("TraceChat VISION: zatvoreni ", closed, " zaostanati privremeni chartovi.");
+   return closed;
+}
+
 bool ChatVisionDrawDailyLevels(long cid)
 {
    if (cid <= 0 || !Chat_VisionDrawLevels) return false;
@@ -18979,6 +19023,7 @@ string ChatVisionCapture()
          }
       }
    }
+   ChatVisionSweepTemps();
    if (g_chatVisionCount > 0)
    {
       g_chatVisionShotLocal = TimeLocal();

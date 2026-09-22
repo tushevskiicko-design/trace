@@ -7734,7 +7734,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
    ObjectSetInteger(0, rectName, OBJPROP_COLOR, markerColor);
    ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_DOT);
    ObjectSetInteger(0, rectName, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, rectName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
    ObjectSetInteger(0, rectName, OBJPROP_FILL, false);
    ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, rectName, OBJPROP_HIDDEN, false);
@@ -7747,7 +7747,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
                     (orderType == OP_BUY) ? 233 : 234);
    ObjectSetInteger(0, arrowName, OBJPROP_COLOR, markerColor);
    ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 2);
-   ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, arrowName, OBJPROP_BACK, true);
    ObjectSetInteger(0, arrowName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, arrowName, OBJPROP_HIDDEN, false);
 
@@ -7764,7 +7764,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
    ObjectSetInteger(0, textName, OBJPROP_ANCHOR,
                     (orderType == OP_BUY) ? ANCHOR_LEFT_LOWER
                                           : ANCHOR_LEFT_UPPER);
-   ObjectSetInteger(0, textName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, textName, OBJPROP_BACK, true);
    ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, textName, OBJPROP_HIDDEN, false);
    Print("ImmediateEntry marker drawn for zone ", zone.uniqueID,
@@ -11723,7 +11723,7 @@ void DrawDailyLevel(string key, double price, color lineColor, int lineWidth,
    ObjectSetInteger(0, textName, OBJPROP_COLOR, lineColor);
    ObjectSetInteger(0, textName, OBJPROP_ANCHOR,
                     DL_LabelAbove ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
-   ObjectSetInteger(0, textName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, textName, OBJPROP_BACK, true);
    ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
 }
@@ -12059,7 +12059,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
          ObjectSetInteger(0, statusName, OBJPROP_FONTSIZE, 8);
          ObjectSetString(0, statusName, OBJPROP_FONT, "Arial");
          ObjectSetInteger(0, statusName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-         ObjectSetInteger(0, statusName, OBJPROP_BACK, false);
+         ObjectSetInteger(0, statusName, OBJPROP_BACK, true);
          ObjectSetInteger(0, statusName, OBJPROP_SELECTABLE, false);
       }
       else
@@ -12097,7 +12097,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
               ObjectSetInteger(0, liqName, OBJPROP_COLOR, clrAqua);
               ObjectSetInteger(0, liqName, OBJPROP_ANCHOR, ANCHOR_LEFT);
               ObjectSetInteger(0, liqName, OBJPROP_FONTSIZE, 8);
-              ObjectSetInteger(0, liqName, OBJPROP_BACK, false);
+              ObjectSetInteger(0, liqName, OBJPROP_BACK, true);
           }
           else
           {
@@ -12119,7 +12119,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
             ObjectSetInteger(0, volName, OBJPROP_COLOR, clrWhite);
             ObjectSetInteger(0, volName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
             ObjectSetInteger(0, volName, OBJPROP_FONTSIZE, 7);
-            ObjectSetInteger(0, volName, OBJPROP_BACK, false);
+            ObjectSetInteger(0, volName, OBJPROP_BACK, true);
          }
          else
          {
@@ -12209,6 +12209,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    if (ObjectFind(0, zone.slName) == -1)
    {
       ObjectCreate(0, zone.slName, OBJ_TREND, 0, lineStartTime, slPrice, lineEndTime, slPrice);
+      ObjectSetInteger(0, zone.slName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.slName, OBJPROP_COLOR, Color_SL);
       ObjectSetInteger(0, zone.slName, OBJPROP_WIDTH, SL_TP_Width);
       ObjectSetInteger(0, zone.slName, OBJPROP_RAY_RIGHT, false);
@@ -12218,6 +12219,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    {
       ObjectMove(0, zone.slName, 0, lineStartTime, slPrice);
       ObjectMove(0, zone.slName, 1, lineEndTime, slPrice);
+      ObjectSetInteger(0, zone.slName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.slName, OBJPROP_COLOR, Color_SL);
       ObjectSetInteger(0, zone.slName, OBJPROP_WIDTH, SL_TP_Width);
    }
@@ -12226,6 +12228,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    if (ObjectFind(0, zone.tpName) == -1)
    {
       ObjectCreate(0, zone.tpName, OBJ_TREND, 0, lineStartTime, tpPrice, lineEndTime, tpPrice);
+      ObjectSetInteger(0, zone.tpName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.tpName, OBJPROP_COLOR, Color_TP);
       ObjectSetInteger(0, zone.tpName, OBJPROP_WIDTH, SL_TP_Width);
       ObjectSetInteger(0, zone.tpName, OBJPROP_RAY_RIGHT, false);
@@ -12235,6 +12238,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    {
       ObjectMove(0, zone.tpName, 0, lineStartTime, tpPrice);
       ObjectMove(0, zone.tpName, 1, lineEndTime, tpPrice);
+      ObjectSetInteger(0, zone.tpName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.tpName, OBJPROP_COLOR, Color_TP);
       ObjectSetInteger(0, zone.tpName, OBJPROP_WIDTH, SL_TP_Width);
    }
@@ -12246,6 +12250,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
       if (ObjectFind(0, zone.slTextName) == -1)
       {
          ObjectCreate(0, zone.slTextName, OBJ_TEXT, 0, lineEndTime, slPrice);
+         ObjectSetInteger(0, zone.slTextName, OBJPROP_BACK, true);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_COLOR, Color_SL);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_FONTSIZE, 8);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
@@ -12255,11 +12260,13 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
          ObjectMove(0, zone.slTextName, 0, lineEndTime, slPrice);
       }
       ObjectSetString(0, zone.slTextName, OBJPROP_TEXT, "  SL: " + DoubleToString(slPrice, Digits));
+      ObjectSetInteger(0, zone.slTextName, OBJPROP_BACK, true);
 
       // TP Label
       if (ObjectFind(0, zone.tpTextName) == -1)
       {
          ObjectCreate(0, zone.tpTextName, OBJ_TEXT, 0, lineEndTime, tpPrice);
+         ObjectSetInteger(0, zone.tpTextName, OBJPROP_BACK, true);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_COLOR, Color_TP);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_FONTSIZE, 8);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
@@ -12269,6 +12276,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
          ObjectMove(0, zone.tpTextName, 0, lineEndTime, tpPrice);
       }
       ObjectSetString(0, zone.tpTextName, OBJPROP_TEXT, "  TP: " + DoubleToString(tpPrice, Digits));
+      ObjectSetInteger(0, zone.tpTextName, OBJPROP_BACK, true);
    }
 }
 
@@ -18537,7 +18545,7 @@ bool ChatVisionDrawDailyLevels(long cid)
       ObjectSetInteger(cid, name, OBJPROP_COLOR, colors[i]);
       ObjectSetInteger(cid, name, OBJPROP_WIDTH, widths[i]);
       ObjectSetInteger(cid, name, OBJPROP_STYLE, STYLE_SOLID);
-      ObjectSetInteger(cid, name, OBJPROP_BACK, false);
+      ObjectSetInteger(cid, name, OBJPROP_BACK, true);
       ObjectSetInteger(cid, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(cid, name, OBJPROP_SELECTED, false);
       ObjectSetInteger(cid, name, OBJPROP_HIDDEN, true);

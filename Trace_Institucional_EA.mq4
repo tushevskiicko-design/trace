@@ -1290,6 +1290,7 @@ bool     AIVisionClaimLock();
 void     AIVisionReleaseLock();
 string   AIVisionLockName();
 string   AIVisionCapture(bool automatic = false);
+bool     AIVisionShotDue();
 void     AIComputeGate();
 string   DetectMarketRegime(string &why);
 bool     PassFinalSignalJudge(int scoutDir, double entry, double sl, double tp2,
@@ -9557,6 +9558,16 @@ string AIVisionFilesOnDisk()
    return arr;
 }
 
+bool AIVisionShotDue()
+{
+   int shotEvery = (AI_VisionEverySec > 0) ? AI_VisionEverySec
+                                           : ((AI_ScanEverySec > 0) ? AI_ScanEverySec : 90);
+   if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
+   if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
+   long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
+   return !(g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0);
+}
+
 // Snima PNG za sekoj vision chart. Vrakja JSON array so relativni pateki.
 string AIVisionCapture(bool automatic)
 {
@@ -9574,7 +9585,7 @@ string AIVisionCapture(bool automatic)
    if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
    if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
    long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
-   if (g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0)
+   if (!AIVisionShotDue())
    {
       Print(">>> [Vision] SHOT SKIP (throttle): slikite se stari ", shotAge, "s od ",
             shotEvery, "s -> koristam postoechki sliki.");
@@ -10502,7 +10513,7 @@ void AIScanMarketNow()
    static bool visOpenPauseLogged = false;
    datetime visNow = TimeLocal();
    if (visNow <= 0) visNow = TimeCurrent();
-   bool visWillShoot = AI_VisionEyes && (!AI_VisionOnlyOnSetup || g_gatePass);
+   bool visWillShoot = AI_VisionEyes && (!AI_VisionOnlyOnSetup || g_gatePass) && AIVisionShotDue();
    if (visWillShoot && g_visCount == 0 && !IsTesting() && !IsOptimization() &&
        (visOpenRetryAfter <= 0 || visNow >= visOpenRetryAfter))
    {

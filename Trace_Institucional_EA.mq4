@@ -447,6 +447,7 @@ input string Input_ZoneResync              = "Zone Auto-Resync------------";
 input bool   Zone_AutoResync               = true;
 input int    Zone_ResyncMinutes            = 5;
 input int    Zone_ResyncTradeMaxBars       = 3;      // resync-detected zone whose breakout is <= this many bars old is treated as live (trade + Telegram); 0 = never
+input string Zone_MinGrade                 = "C";      // Min dashboard grade (S/A/B/C/D) for zone entries (ImmediateEntry/AutoTrade); "" = off. "C" blocks only grade D
 
 input string Input_Watchdog                = "Watchdog / Anti-Sleep------------";
 input bool   Use_Watchdog                  = true;
@@ -1291,6 +1292,7 @@ void     AIVisionReleaseLock();
 string   AIVisionLockName();
 string   AIVisionCapture(bool automatic = false);
 bool     AIVisionShotDue();
+bool     ZoneGradeAllowed(string &why);
 void     AIComputeGate();
 string   DetectMarketRegime(string &why);
 bool     PassFinalSignalJudge(int scoutDir, double entry, double sl, double tp2,
@@ -7819,6 +7821,13 @@ void ImmediateEntry(ZoneInfo &zone, bool firstDetection)
    }
    if (!ImmediateZoneIsRecent(zone)) return;
 
+   string gradeWhy = "";
+   if (!ZoneGradeAllowed(gradeWhy))
+   {
+      Print("ImmediateEntry BLOCKED zone ", zone.uniqueID, ": ", gradeWhy);
+      return;
+   }
+
    RefreshRates();
    int type = (zone.zoneType == "Bull") ? OP_BUY : OP_SELL;
    double marketPrice = (type == OP_BUY) ? Ask : Bid;
@@ -7995,6 +8004,13 @@ void AttemptAutoTrade(ZoneInfo &zone, int tradeShift = 0)
    if (AutoTrade_RespectTimeFilter && !IsTradingAllowed()) return;
    
    if (AutoTrade_CurrentChartTFOnly && zone.timeframe != Period()) return;
+
+   string gradeWhy = "";
+   if (!ZoneGradeAllowed(gradeWhy))
+   {
+      Print("AttemptAutoTrade BLOCKED zone ", zone.uniqueID, ": ", gradeWhy);
+      return;
+   }
 
    int type = (zone.zoneType == "Bull") ? OP_BUY : OP_SELL;
 
@@ -8695,6 +8711,15 @@ int AIGradeRank(string g)
    if (u == "C") return 2;
    if (u == "D") return 1;
    return 0;
+}
+
+bool ZoneGradeAllowed(string &why)
+{
+   string minGrade = Zone_MinGrade; StringTrimLeft(minGrade); StringTrimRight(minGrade); StringToUpper(minGrade);
+   if (StringLen(minGrade) == 0) return true;
+   if (AIGradeRank(g_sigCachedGrade) >= AIGradeRank(minGrade)) return true;
+   why = "grade " + g_sigCachedGrade + " < Zone_MinGrade " + minGrade;
+   return false;
 }
 
 // Vrakja 1/-1/0 za daden TF od MTF cache. dir==0 znaci "nema podatok ili FLAT".
@@ -17191,6 +17216,8 @@ bool ChatValidatePlan(string reply, string &warning)
    bool slProvided = ChatPlanNumber(ChatPlanField(normalized, "SL"), sl);
    bool tp1Provided = ChatPlanNumber(ChatPlanField(normalized, "TP1"), tp1);
    bool tp2Provided = ChatPlanNumber(ChatPlanField(normalized, "TP2"), tp2);
+   if (tp1Provided && !tp2Provided) { tp2 = tp1; tp2Provided = true; }
+   if (tp2Provided && !tp1Provided) { tp1 = tp2; tp1Provided = true; }
    bool rrProvided = ChatPlanNumber(ChatPlanField(normalized, "RR"), rr);
    bool bad = false;
    // RR e samo aritmetika - ako AI go zaokruzhi pogresno EA go presmetuva sam,
@@ -19770,6 +19797,23 @@ void ChatScoutHandlePlan(bool ok, string answer)
       ChatScoutRedraw();
       return;
    }
+   string lowerAnswer = answer; StringToLower(lowerAnswer);
+   bool apiFailure = (StringFind(lowerAnswer, "greska:") >= 0 || StringFind(lowerAnswer, "error:") >= 0 ||
+                      StringFind(lowerAnswer, "http 4") >= 0 || StringFind(lowerAnswer, "http 5") >= 0 ||
+                      StringFind(lowerAnswer, "no credits") >= 0 || StringFind(lowerAnswer, "rate limit") >= 0 ||
+                      StringFind(lowerAnswer, "can't assist") >= 0 || StringFind(lowerAnswer, "cannot assist") >= 0 ||
+                      StringFind(lowerAnswer, "i'm sorry") >= 0);
+   if (apiFailure && StringFind(lowerAnswer, "setup") < 0)
+   {
+      g_chatScoutFailedAttempts++;
+      if (g_chatScoutFailedAttempts >= 3) g_chatScoutOfflineRetryAfter = now + 600;
+      Print("TraceChat SCOUT silent: API/model failure: ", answer);
+      ChatScoutLog("ERROR", "-", 0, 0, 0, 0, ChatSanitize(answer));
+      if (Chat_ScoutVerbose) ChatAppend("SCOUT API greshka: " + answer, clrOrange);
+      g_chatStatus = ChatScoutStatusText();
+      ChatScoutRedraw();
+      return;
+   }
    g_chatScoutFailedAttempts = 0;
    g_chatScoutOfflineRetryAfter = 0;
    if (Chat_CountOnlyAnsweredCalls)
@@ -19821,6 +19865,8 @@ void ChatScoutHandlePlan(bool ok, string answer)
    ChatPlanNumber(ChatPlanField(parseReply, "SL"), planSL);
    ChatPlanNumber(ChatPlanField(parseReply, "TP1"), planTP1);
    ChatPlanNumber(ChatPlanField(parseReply, "TP2"), planTP2);
+   if (planTP1 > 0.0 && planTP2 <= 0.0) planTP2 = planTP1;
+   if (planTP2 > 0.0 && planTP1 <= 0.0) planTP1 = planTP2;
    ChatPlanNumber(ChatPlanField(parseReply, "RR"), planRR);
    ChatPlanNumber(ChatPlanField(parseReply, "CONF"), planConf);
    double rrCalc = ChatPlanRRCalc(planEntry, planSL, planTP2);

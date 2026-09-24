@@ -770,6 +770,7 @@ input string Input_Telegram                = "Telegram Settings------------";
 input bool   EnableTelegram                = true; 
 input string TelegramBotToken              = "";
 input string TelegramChatID                = "";
+input bool   Telegram_StartupTest          = true;   // Prati test poraka pri start (greshkata se gleda vo chat panelot)
 input bool   DebugMode                     = true;
 
 input string Input_Dash                    = "Dashboard------------";
@@ -811,6 +812,8 @@ int      g_wdTickCount        = 0;
 int      g_wdTimerCount       = 0;
 int      g_wdLastBlockMs      = 0;
 string   g_wdLastBlockTag     = "";
+string   g_tgLastError        = "";
+int      g_tgFailCount        = 0;
 
 datetime g_lastBarTime        = 0;
 int      g_timeframe          = 0;
@@ -1194,7 +1197,7 @@ bool     IsZoneBroken(ZoneInfo &zone);
 
 int      CountBullZonesForTF(int tf);
 int      CountBearZonesForTF(int tf);
-void     SendTelegramMessage(string message);
+bool     SendTelegramMessage(string message);
 void     NotifyNewZone(ZoneInfo &zone, bool fromResync);
 
 void     UpdateDashboard();
@@ -1661,6 +1664,13 @@ int OnInit()
 
    if (Chat_Enable && !IsTesting() && !IsOptimization())
       ChatInit();
+
+   if (EnableTelegram && Telegram_StartupTest && !IsTesting() && !IsOptimization())
+   {
+      bool tgOk = SendTelegramMessage("Trace EA start: " + Symbol() + " " +
+                                      TimeframeToString(Period()) + " | Telegram raboti");
+      if (tgOk && Chat_Enable) { ChatAppend("TELEGRAM OK - test porakata e pratena", clrLime); ChartRedraw(); }
+   }
 
    // AI ochi: charts se otvaraat mrzelivo pri prviot scan (ne vo OnInit, za da ne
    // se zabavi vcituvanjeto na EA-to i da ne se pravi ChartOpen dodeka MT4 se podiga)
@@ -12507,50 +12517,86 @@ int GetZoneWidth(double score)
 //+------------------------------------------------------------------+ 
 //| TELEGRAM NOTIFICATIONS                                           | 
 //+------------------------------------------------------------------+ 
-void SendTelegramMessage(string message) 
-{ 
-   if (!EnableTelegram) { if (DebugMode) Print("Telegram: disabled"); return; } 
-   if (TelegramBotToken == "") { Print("Telegram: BotToken is empty"); return; } 
-   if (TelegramChatID == "")  { Print("Telegram: ChatID is empty");  return; } 
- 
-   string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage"; 
-    
-   string headers = "Content-Type: application/json\r\n"; 
-   string text = message; 
-   StringReplace(text, "\\", "\\\\"); 
-   StringReplace(text, "\"", "\\\""); 
-   StringReplace(text, "\n", "\\n"); 
-    
-   string params = "{\"chat_id\":\"" + TelegramChatID + "\",\"text\":\"" + text + "\"}"; 
-    
-   if (DebugMode) Print("Telegram sending: ", params); 
-    
-   char data[]; 
-   int len = StringToCharArray(params, data, 0, -1, CP_UTF8); 
-   if (len > 1) ArrayResize(data, len - 1); 
-    
-   char result[]; 
-   string result_headers; 
-    
-   ResetLastError(); 
-    
-   int res = WebRequest("POST", url, headers, 10000, data, result, result_headers); 
-    
-   if (res == 200) 
-   { 
-      if (DebugMode) Print("Telegram OK - message sent successfully"); 
-   } 
-   else if (res == -1) 
-   { 
-      int err = GetLastError(); 
-      Print("Telegram FAILED: res=-1, ErrorCode=", err, 
-            " | If error=4014: go to MT4 Tools > Options > Expert Advisors > Allow WebRequest > add: https://api.telegram.org"); 
-   } 
-   else 
-   { 
-      string resp = CharArrayToString(result, 0, -1, CP_UTF8); 
-      Print("Telegram Error: HTTP=", res, " ErrorCode=", GetLastError(), " Response=", resp); 
-   } 
+void TelegramReportFail(string why)
+{
+   g_tgLastError = why;
+   g_tgFailCount++;
+   Print("Telegram FAILED: ", why);
+   if (Chat_Enable && !IsTesting() && !IsOptimization())
+   {
+      ChatAppend("TELEGRAM NE E PRATENO: " + why, clrRed);
+      ChartRedraw();
+   }
+}
+
+bool SendTelegramMessage(string message)
+{
+   if (!EnableTelegram) { if (DebugMode) Print("Telegram: disabled"); return false; }
+   if (TelegramBotToken == "") { TelegramReportFail("TelegramBotToken e prazen (vnesi go vo Inputs)"); return false; }
+   if (TelegramChatID == "")  { TelegramReportFail("TelegramChatID e prazen (vnesi go vo Inputs)"); return false; }
+   if (IsTesting() || IsOptimization()) return false;
+
+   string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage";
+
+   string headers = "Content-Type: application/json\r\n";
+   string text = message;
+   StringReplace(text, "\\", "\\\\");
+   StringReplace(text, "\"", "\\\"");
+   StringReplace(text, "\r", "");
+   StringReplace(text, "\n", "\\n");
+   if (StringLen(text) > 4000) text = StringSubstr(text, 0, 4000);
+
+   string params = "{\"chat_id\":\"" + TelegramChatID + "\",\"text\":\"" + text + "\"}";
+
+   if (DebugMode) Print("Telegram sending: ", params);
+
+   char data[];
+   int len = StringToCharArray(params, data, 0, -1, CP_UTF8);
+   if (len > 1) ArrayResize(data, len - 1);
+
+   int res = -1; int err = 0; string resp = "";
+   for (int attempt = 0; attempt < 2; attempt++)
+   {
+      char result[];
+      string result_headers;
+      ResetLastError();
+      res = WebRequest("POST", url, headers, 10000, data, result, result_headers);
+      err = GetLastError();
+      if (res == 200) break;
+      resp = CharArrayToString(result, 0, -1, CP_UTF8);
+      if (res == -1 && err == 4014) break;
+      if (res >= 400 && res < 500 && res != 429) break;
+      Sleep(700);
+   }
+
+   if (res == 200)
+   {
+      g_tgLastError = "";
+      if (DebugMode) Print("Telegram OK - message sent successfully");
+      return true;
+   }
+   if (res == -1)
+   {
+      string why = "WebRequest err=" + IntegerToString(err);
+      if (err == 4014)
+         why += " - dodaj https://api.telegram.org vo Tools > Options > Expert Advisors > Allow WebRequest";
+      else if (err == 4060)
+         why += " - WebRequest ne e dozvolen (shtiklirj Allow WebRequest)";
+      else if (err == 5203)
+         why += " - HTTP request failed (internet/proxy/DNS)";
+      else
+         why += " - proveri internet konekcija";
+      TelegramReportFail(why);
+      return false;
+   }
+   string why2 = "HTTP " + IntegerToString(res);
+   if (res == 401 || res == 404) why2 += " - nevaliden TelegramBotToken";
+   else if (res == 400) why2 += " - nevaliden TelegramChatID (prvo prati /start na bot-ot)";
+   else if (res == 403) why2 += " - bot-ot e blokiran / ne e vo grupata";
+   else if (res == 429) why2 += " - previse poraki (rate limit)";
+   if (StringLen(resp) > 0) why2 += " | " + StringSubstr(resp, 0, 160);
+   TelegramReportFail(why2);
+   return false;
 }
 
 void CreateLabel(string name, string text, int x, int y, color clr, int fontSize, bool bold=false)

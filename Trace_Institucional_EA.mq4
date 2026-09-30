@@ -664,9 +664,9 @@ input int    Chat_PlanSLSwingBars         = 12;    // Kolku sveki nazad se gleda
 input double Chat_PlanSLBufferATR         = 0.15;  // Buffer nad swing vo ATR (plus spread)
 input double Chat_PlanMinRR                = 1.50;  // Po SL popravkata: pod ovoj RR e samo WATCH, ne signal
 input bool   Chat_PlanSendSLRule           = true;   // Prati mu ja EA SL pravilata na PLAN/SCOUT
-input bool   Chat_PlanRetargetTP           = true;   // Pri pomesten SL preracunaj TP
+input bool   Chat_PlanRetargetTP           = false;  // Pri pomesten SL preracunaj TP
 input double Chat_PlanTargetRR             = 2.00;   // Ciljan RR pri TP retarget
-input double Chat_PlanMaxSLATR             = 6.00;   // Maksimalen rizik vo ATR
+input double Chat_PlanMaxSLATR             = 3.00;   // Maksimalen rizik vo ATR
 input double Chat_PlanMaxTPATR             = 14.00;  // Maksimalna dalecina na TP vo ATR
 input bool   Chat_TP1DailyLevelGuard       = true;   // Priblizi TP1 pred dnevno nivo (bufferot e vo USD)
 input double Chat_TP1DailyLevelBufferUSD   = 1.50;   // Buffer pred dnevno nivo vo USD (1 poen kaj korisnikot = 0.01 USD)
@@ -694,6 +694,7 @@ input bool   Chat_VisionOwnCharts          = true;   // Chat vision koristi sops
 input bool   Chat_VisionCleanChart         = true;   // Cist stil za privremenite chat vision chartovi
 input string Chat_VisionTemplate           = "";     // Opcionen .tpl za privremenite chat vision chartovi
 input bool   Chat_VisionDrawLevels         = true;   // Dnevni nivoa na privremenite chat vision chartovi
+input int    Chat_VisionJanitorSec         = 60;     // Zatvori zaostanati TRACEAI vision prozorci postari od ova (sekundi). 0 = iskluceno
 input bool   Chat_FeedbackEnable           = true;   // Prakjaj razbieni statistiki (nasoka/sesija/confidence) do AI
 input int    Chat_FeedbackMinSamples       = 6;      // Min zatvoreni planovi vo grupa za da se smeta za dokaz
 input double Chat_FeedbackWeakWinPct       = 40.0;   // Pod ovoj win% grupata e SLABA -> AI mora da e pokonzervativen
@@ -702,6 +703,9 @@ input int    Chat_TriggerMaxMin            = 120;    // Kolku minuti vazi armira
 input double Chat_TriggerMinRR             = 1.00;   // Pod ovoj RR (po SL popravka) triggerot ne se armira
 input bool   Chat_TriggerAlert             = true;   // Alert koga uslovot ke se ispolni
 input bool   Chat_TriggerTelegram          = true;  // Telegram koga uslovot ke se ispolni
+input bool   Chat_SignalOnTriggerOnly      = true;   // SCOUT/AUTO PLAN: AI odgovorot e samo IDEJA; SIGNAL (Alert/Telegram) odi samo koga TRIGGER ke se ispolni i ke pomine proverka
+input bool   Chat_IdeaTelegram             = false;  // Prati i IDEJA/OTKAZAN poraka na Telegram (false = samo potvrden SIGNAL)
+input double Chat_TriggerMaxChaseATR       = 1.00;   // Pri trigger: otkazi ako cenata e podaleku od entry od ova x ATR (scout TF). 0 = iskluceno
 input bool   Use_BreakEven                 = true;
 input double BE_TriggerRR                  = 1.00;   // move SL to BE after this much R in profit
 input double BE_LockPoints                 = 10;
@@ -1040,6 +1044,7 @@ double   g_trigTP2     = 0.0;
 double   g_trigRR      = 0.0;
 double   g_trigConf    = 0.0;
 string   g_trigText    = "";
+bool     g_trigRecordOnFire = false;
 int      g_chatPlanIdNext = 1;
 int      g_chatPlanId[];
 string   g_chatPlanSymbol[];
@@ -1383,6 +1388,7 @@ string   ChatTuneD(string name, double value);
 string   ChatTuneS(string name, string value);
 string   ChatSanitize(string text);
 string   ChatVisionCapture();
+void     ChatVisionJanitorTick();
 bool     ChatVisionWaitChart(long cid, int tf);
 bool     ChatVisionIsOwnedChart(long cid);
 int      ChatVisionSweepTemps();
@@ -1408,9 +1414,10 @@ string   ChatPlanBucket(string label, int win, int loss);
 string   ChatTriggerTypeName(int type);
 string   ChatTriggerDescribe();
 bool     ChatTriggerParse(string raw, int &type, double &level, int &tf);
-void     ChatTriggerArm(string setup, string raw, double entry, double sl,
+bool     ChatTriggerArm(string setup, string raw, double entry, double sl,
                         double tp1, double tp2, double rr, double conf);
 void     ChatTriggerDisarm(string why);
+bool     ChatTriggerRecheck(double &entryNow, double &rrNow, string &why);
 void     ChatTriggerCheck();
 void     ChatTriggerSave();
 void     ChatTriggerLoad();
@@ -1932,6 +1939,9 @@ void OnTimer()
       ChatScoutOnTimer();
       WD_NoteBlock("ChatScout", wdChatScout);
    }
+   if ((Chat_Enable || AI_VisionEyes) && !IsTesting() && !IsOptimization() &&
+       Chat_VisionJanitorSec > 0)
+      ChatVisionJanitorTick();
    if (Chat_Enable) ChatTriggerCheck();
    WD_Heartbeat("timer");
 }
@@ -18320,11 +18330,13 @@ void ChatTriggerSave()
    GlobalVariableSet(p + "tp2",    g_trigTP2);
    GlobalVariableSet(p + "rr",     g_trigRR);
    GlobalVariableSet(p + "conf",   g_trigConf);
+   GlobalVariableSet(p + "recfire", g_trigRecordOnFire ? 1.0 : 0.0);
 }
 
 void ChatTriggerLoad()
 {
    g_trigActive = false;
+   g_trigRecordOnFire = false;
    string p = "TraceChatTrig_" + Symbol() + "_";
    if (!GlobalVariableCheck(p + "active")) return;
    if (GlobalVariableGet(p + "active") < 0.5) return;
@@ -18339,6 +18351,8 @@ void ChatTriggerLoad()
    g_trigTP2   = GlobalVariableGet(p + "tp2");
    g_trigRR    = GlobalVariableGet(p + "rr");
    g_trigConf  = GlobalVariableGet(p + "conf");
+   if (GlobalVariableCheck(p + "recfire"))
+      g_trigRecordOnFire = (GlobalVariableGet(p + "recfire") >= 0.5);
    if (g_trigType == TRIG_NONE || g_trigLevel <= 0.0) return;
    if (Chat_TriggerMinRR > 0.0 && g_trigRR > 0.0 && g_trigRR < Chat_TriggerMinRR)
    {
@@ -18367,13 +18381,13 @@ void ChatTriggerDisarm(string why)
    ChatTriggerSave();
 }
 
-void ChatTriggerArm(string setup, string raw, double entry, double sl,
+bool ChatTriggerArm(string setup, string raw, double entry, double sl,
                     double tp1, double tp2, double rr, double conf)
 {
-   if (!Chat_TriggerEnable) return;
-   if (setup != "BUY" && setup != "SELL") { ChatTriggerDisarm("nov NO_TRADE plan"); return; }
+   if (!Chat_TriggerEnable) return false;
+   if (setup != "BUY" && setup != "SELL") { ChatTriggerDisarm("nov NO_TRADE plan"); return false; }
    int type = TRIG_NONE; double level = 0.0; int tf = 0;
-   if (!ChatTriggerParse(raw, type, level, tf)) return;
+   if (!ChatTriggerParse(raw, type, level, tf)) return false;
    double effectiveRR = rr;
    if (effectiveRR <= 0.0)
       effectiveRR = ChatPlanRRCalc(entry, sl, tp2);
@@ -18387,10 +18401,11 @@ void ChatTriggerArm(string setup, string raw, double entry, double sl,
       Print("TraceChat TRIGGER ODBIEN: ", why);
       ChatAppend("TRIGGER ODBIEN: " + why, clrOrange);
       ChatScoutLog("RR_TOO_LOW", setup, conf, entry, sl, tp2, why);
-      return;
+      return false;
    }
    if (rr <= 0.0 && effectiveRR > 0.0) rr = effectiveRR;
    int maxMin = (Chat_TriggerMaxMin < 5) ? 5 : Chat_TriggerMaxMin;
+   g_trigRecordOnFire = false;
    g_trigActive  = true;
    g_trigDir     = (setup == "BUY") ? 1 : -1;
    g_trigType    = type;
@@ -18409,6 +18424,68 @@ void ChatTriggerArm(string setup, string raw, double entry, double sl,
    ChatTriggerSave();
    ChatAppend("TRIGGER armiran: " + g_trigText, clrYellow);
    Print("TraceChat TRIGGER armiran: ", g_trigText);
+   return true;
+}
+
+bool ChatTriggerRecheck(double &entryNow, double &rrNow, string &why)
+{
+   entryNow = (g_trigDir == 1) ? Ask : Bid;
+   rrNow = 0.0;
+   why = "";
+   double spread = GetSpreadPoints();
+   if (AI_GateMaxSpreadPts > 0.0 && spread > AI_GateMaxSpreadPts)
+   {
+      why = "spread=" + DoubleToString(spread, 0);
+      return false;
+   }
+   string regimeWhy = "";
+   if (DetectMarketRegime(regimeWhy) == "NEWS_BLOCK")
+   {
+      why = "NEWS_BLOCK";
+      return false;
+   }
+   bool h1ok = false;
+   int h1dir = ChatScoutPreGateDir(PERIOD_H1, h1ok);
+   if (h1ok && h1dir == -g_trigDir)
+   {
+      why = "H1 se svrte protiv";
+      return false;
+   }
+   if ((g_trigDir == 1 && entryNow <= g_trigSL) ||
+       (g_trigDir == -1 && entryNow >= g_trigSL))
+   {
+      why = "SL vekje probien";
+      return false;
+   }
+   if (g_trigTP1 > 0.0 &&
+       ((g_trigDir == 1 && entryNow >= g_trigTP1) ||
+        (g_trigDir == -1 && entryNow <= g_trigTP1)))
+   {
+      why = "TP1 vekje dostignat";
+      return false;
+   }
+   double atr = iATR(Symbol(), ChatScoutTf(), 14, 1);
+   if (atr <= 0.0) atr = Point * 50;
+   double chase = MathAbs(entryNow - g_trigEntry);
+   if (Chat_TriggerMaxChaseATR > 0.0 &&
+       chase > Chat_TriggerMaxChaseATR * atr)
+   {
+      why = "cenata izbega " + DoubleToString(chase, Digits) + " od entry";
+      return false;
+   }
+   double risk = MathAbs(entryNow - g_trigSL);
+   if (Chat_PlanMaxSLATR > 0.0 && risk > Chat_PlanMaxSLATR * atr)
+   {
+      why = "SL preshirok";
+      return false;
+   }
+   rrNow = ChatPlanRRCalc(entryNow, g_trigSL, g_trigTP2);
+   if (Chat_PlanMinRR > 0.0 && rrNow < Chat_PlanMinRR)
+   {
+      why = "RR od sega " + DoubleToString(rrNow, 2) + " < min";
+      return false;
+   }
+   return true;
 }
 
 void ChatTriggerCheck()
@@ -18448,19 +18525,42 @@ void ChatTriggerCheck()
    if (!fired) return;
 
    string dirText = (g_trigDir == 1) ? "BUY" : "SELL";
-   string msg = ChatSanitize("TRIGGER ISPOLNET: " + dirText + " " +
+   double entryNow = 0.0;
+   double rrNow = 0.0;
+   string recheckWhy = "";
+   if (!ChatTriggerRecheck(entryNow, rrNow, recheckWhy))
+   {
+      string cancelMsg = ChatSanitize("SIGNAL OTKAZAN: " + dirText + " " +
+                                      recheckWhy + " | " + g_trigText);
+      ChatAppend(cancelMsg, clrOrange);
+      Print("TraceChat ", cancelMsg);
+      ChatScoutLog("TRIGGER_CANCEL", dirText, g_trigConf, g_trigEntry,
+                   g_trigSL, g_trigTP2, recheckWhy);
+      if (Chat_IdeaTelegram) SendTelegramMessage(cancelMsg);
+      ChatTriggerDisarm("recheck: " + recheckWhy);
+      ChatRefreshStatus();
+      return;
+   }
+   string msg = ChatSanitize("SIGNAL POTVRDEN: " + dirText + " " +
                 ChatTriggerTypeName(g_trigType) + " " + DoubleToString(g_trigLevel, Digits) +
                 " " + TimeframeToString(g_trigTF) +
-                " | entry=" + DoubleToString(g_trigEntry, Digits) +
+                " | ENTRY=" + DoubleToString(entryNow, Digits) +
                 " SL=" + DoubleToString(g_trigSL, Digits) +
                 " TP1=" + DoubleToString(g_trigTP1, Digits) +
                 " TP2=" + DoubleToString(g_trigTP2, Digits) +
-                " RR=" + DoubleToString(g_trigRR, 2) +
+                " RR=" + DoubleToString(rrNow, 2) +
                 " CONF=" + DoubleToString(g_trigConf, 0));
    ChatAppend(msg, clrLime);
    if (Chat_TriggerAlert)    Alert(msg);
    if (Chat_TriggerTelegram) SendTelegramMessage(msg);
    Print("TraceChat ", msg);
+   if (g_trigRecordOnFire)
+   {
+      ChatPlanRecord(dirText, entryNow, g_trigSL, g_trigTP1, g_trigTP2,
+                     rrNow, g_trigConf);
+      ChatScoutLog("SIGNAL_CONFIRMED", dirText, g_trigConf, entryNow,
+                   g_trigSL, g_trigTP2, g_trigText);
+   }
    ChatTriggerDisarm("ispolnet");
    ChatLayout();
    ChartRedraw();
@@ -18586,6 +18686,65 @@ int ChatVisionSweepTemps()
    }
    if (closed > 0) Print("TraceChat VISION: zatvoreni ", closed, " zaostanati privremeni chartovi.");
    return closed;
+}
+
+void ChatVisionJanitorTick()
+{
+   static datetime lastPass = 0;
+   static long previous[64];
+   static int previousCount = 0;
+   datetime now = TimeLocal();
+   if (lastPass > 0 && now - lastPass < Chat_VisionJanitorSec) return;
+   lastPass = now;
+
+   long current[64];
+   ArrayInitialize(current, 0);
+   int currentCount = 0;
+   int scanned = 0;
+   long cid = ChartFirst();
+   while (cid >= 0 && scanned < 64)
+   {
+      if (cid != ChartID())
+      {
+         string comment = ChartGetString(cid, CHART_COMMENT);
+         bool candidate = (StringFind(comment, CHAT_VISION_TAG, 0) >= 0) ||
+                          (AI_VisionCloseAfterShot &&
+                           StringFind(comment, VIS_TAG, 0) >= 0);
+         bool activeVision = false;
+         for (int vis = 0; vis < g_visCount; vis++)
+         {
+            if (g_visChart[vis] == cid)
+            {
+               activeVision = true;
+               break;
+            }
+         }
+         if (candidate && !activeVision && currentCount < 64)
+            current[currentCount++] = cid;
+      }
+      cid = ChartNext(cid);
+      scanned++;
+   }
+
+   int closed = 0;
+   for (int i = 0; i < currentCount; i++)
+   {
+      bool seenPrevious = false;
+      for (int old = 0; old < previousCount; old++)
+      {
+         if (previous[old] == current[i])
+         {
+            seenPrevious = true;
+            break;
+         }
+      }
+      if (seenPrevious && ChartClose(current[i])) closed++;
+   }
+   if (closed > 0)
+      Print(">>> [Vision] Janitor zatvori ", closed, " zaostanati prozorci");
+   for (int save = 0; save < currentCount; save++)
+      previous[save] = current[save];
+   previousCount = currentCount;
 }
 
 bool ChatVisionDrawDailyLevels(long cid)
@@ -20228,9 +20387,30 @@ void ChatScoutHandlePlan(bool ok, string answer)
          return;
       }
    }
-   ChatPlanRecord(setup, planEntry, planSL, planTP1, planTP2, planRR, planConf);
-   ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
-                  planEntry, planSL, planTP1, planTP2, planRR, planConf);
+   if (Chat_SignalOnTriggerOnly)
+   {
+      bool armed = ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
+                                  planEntry, planSL, planTP1, planTP2, planRR, planConf);
+      if (!armed)
+      {
+         Print("TraceChat SCOUT IDEA_NO_TRIGGER: ", setup,
+               " trigger ne se armira | ", scoutWhy);
+         ChatScoutLog("IDEA_NO_TRIGGER", setup, planConf, planEntry, planSL, planTP2,
+                      "trigger ne se armira | " + scoutWhy);
+         ChatAppend("SCOUT " + setup + " IDEJA bez validen TRIGGER -> nema signal", clrGray);
+         g_chatStatus = ChatScoutStatusText();
+         ChatScoutRedraw();
+         return;
+      }
+      g_trigRecordOnFire = true;
+      ChatTriggerSave();
+   }
+   else
+   {
+      ChatPlanRecord(setup, planEntry, planSL, planTP1, planTP2, planRR, planConf);
+      ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
+                     planEntry, planSL, planTP1, planTP2, planRR, planConf);
+   }
    g_chatScoutLastDir = scoutDir;
    g_chatScoutLastEntry = planEntry;
    g_chatScoutLastSL = planSL;
@@ -20252,19 +20432,38 @@ void ChatScoutHandlePlan(bool ok, string answer)
                " RR=" + DoubleToString(planRR, 2) + " (koristi go OVOJ SL)";
    string alertText = ChatSanitize("SCOUT: " + setup + " " + levelsLine +
                                    (StringLen(eaLine) > 0 ? (" | " + eaLine) : ""));
-   ChatAppend("SCOUT:\n" + answer, clrAqua);
+   if (Chat_SignalOnTriggerOnly)
+      ChatAppend("SCOUT IDEJA (ceka potvrda): " + g_trigText + "\n" + answer, clrAqua);
+   else
+      ChatAppend("SCOUT:\n" + answer, clrAqua);
    if (promotedM15Flat)
-      ChatAppend("M15 FLAT - dozvoleno so potvrda i RR " +
-                 DoubleToString(planRR, 2), clrLime);
-   ChatAppend(levelsLine, clrAqua);
-   if (StringLen(eaLine) > 0) ChatAppend(eaLine, clrLime);
-   if (Chat_ScoutAlert) Alert(alertText);
-   if (Chat_ScoutTelegram) SendTelegramMessage(alertText);
+      ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA M15 FLAT - " : "M15 FLAT - ") +
+                 "dozvoleno so potvrda i RR " + DoubleToString(planRR, 2), clrLime);
+   ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA " : "") + levelsLine, clrAqua);
+   if (StringLen(eaLine) > 0)
+      ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA " : "") + eaLine, clrLime);
+   if (Chat_SignalOnTriggerOnly)
+   {
+      if (Chat_IdeaTelegram)
+         SendTelegramMessage(ChatSanitize("IDEJA (ceka potvrda): " + setup + " " +
+                                          levelsLine + " | TRIGGER " + g_trigText));
+   }
+   else
+   {
+      if (Chat_ScoutAlert) Alert(alertText);
+      if (Chat_ScoutTelegram) SendTelegramMessage(alertText);
+   }
    g_chatStatus = ChatScoutStatusText();
-   ChatScoutLog((promotedM15Flat ? "SIGNAL_M15_FLAT" : "SIGNAL"),
-                setup, planConf, planEntry, planSL, planTP2,
-                (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
-   Print("TraceChat SCOUT YES: ", setup, " CONF=", DoubleToString(planConf, 0));
+   if (Chat_SignalOnTriggerOnly)
+      ChatScoutLog((promotedM15Flat ? "IDEA_ARMED_M15_FLAT" : "IDEA_ARMED"),
+                   setup, planConf, planEntry, planSL, planTP2,
+                   (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
+   else
+      ChatScoutLog((promotedM15Flat ? "SIGNAL_M15_FLAT" : "SIGNAL"),
+                   setup, planConf, planEntry, planSL, planTP2,
+                   (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
+   Print(Chat_SignalOnTriggerOnly ? "TraceChat SCOUT IDEA ARMED: " : "TraceChat SCOUT YES: ",
+         setup, " CONF=", DoubleToString(planConf, 0));
    ChatLayout();
    ChartRedraw();
 }
@@ -20407,7 +20606,8 @@ void ChatPlanRun(bool automatic, bool scout)
                         planEntry, planSL, planTP1, planTP2, planRR, planConf);
          string autoHistoryWhy = "";
          int autoNeedConf = ChatScoutRequiredConf(setup, autoHistoryWhy);
-         if (automatic && (setup == "BUY" || setup == "SELL") && planConf >= autoNeedConf)
+         if (!Chat_SignalOnTriggerOnly && automatic &&
+             (setup == "BUY" || setup == "SELL") && planConf >= autoNeedConf)
          {
             string alertText = ChatSanitize("AUTO PLAN: " + setup + " " + answer);
             if (Chat_AutoPlanAlert) Alert(alertText);

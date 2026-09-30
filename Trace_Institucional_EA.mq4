@@ -1388,7 +1388,13 @@ string   ChatTuneD(string name, double value);
 string   ChatTuneS(string name, string value);
 string   ChatSanitize(string text);
 string   ChatVisionCapture();
-void     ChatVisionJanitorTick();
+void     ChatVisionJanitorTick(bool force = false);
+string   VisionOwnedKey(long cid);
+void     VisionOwnedRegister(long cid, bool isEye = false);
+void     VisionOwnedForget(long cid);
+bool     VisionOwnedIsRegistered(long cid);
+long     VisionOpenHelperChart(int tf);
+void     ChatVisionStyleTemp(long cid);
 bool     ChatVisionWaitChart(long cid, int tf);
 bool     ChatVisionIsOwnedChart(long cid);
 int      ChatVisionSweepTemps();
@@ -1655,6 +1661,9 @@ int OnInit()
    g_visCount = 0;      g_visFiles = "";  g_visShotTime = 0;  g_visShotLocal = 0;
    g_chatVisionCount = 0;  g_chatVisionShotLocal = 0;
    for (int vz0 = 0; vz0 < 4; vz0++) { g_visChart[vz0] = 0; g_visOwned[vz0] = false; }
+   if ((Chat_Enable || AI_VisionEyes) && !IsTesting() && !IsOptimization() &&
+       Chat_VisionJanitorSec > 0)
+      ChatVisionJanitorTick(true);
    g_lastLoggedSigKey = "";
    for (int mz0 = 0; mz0 < MTF_N; mz0++) { g_mtfName[mz0] = ""; g_mtfBias[mz0] = ""; }
    Print(">>> [Plan B] EA INIT: AI_Enable=", (AI_Enable ? "true" : "false"),
@@ -9331,7 +9340,7 @@ int AIVisionSweepOrphans(long keepCid)
    {
       if (ids[i] == ChartID() || ids[i] == keepCid) continue;
       if (!ChatVisionIsOwnedChart(ids[i])) continue;
-      ChartClose(ids[i]);
+      if (ChartClose(ids[i])) VisionOwnedForget(ids[i]);
       closed++;
    }
    if (closed > 0) Print(">>> [Vision] Zatvoreni ", closed, " zaostanati EYE charts.");
@@ -9368,6 +9377,70 @@ void AIVisionReleaseLock()
    string ln = AIVisionLockName();
    if (GlobalVariableCheck(ln) && (long)GlobalVariableGet(ln) == ChartID())
       GlobalVariableDel(ln);
+}
+
+string VisionOwnedKey(long cid)
+{
+   return "TraceVisOwned_" + StringFormat("%I64d", cid);
+}
+
+void VisionOwnedRegister(long cid, bool isEye)
+{
+   if (cid <= 0) return;
+   double stamp = (double)TimeLocal();
+   GlobalVariableSet(VisionOwnedKey(cid), isEye ? -stamp : stamp);
+}
+
+void VisionOwnedForget(long cid)
+{
+   if (cid > 0) GlobalVariableDel(VisionOwnedKey(cid));
+}
+
+bool VisionOwnedIsRegistered(long cid)
+{
+   return (cid > 0 && GlobalVariableCheck(VisionOwnedKey(cid)));
+}
+
+long VisionOpenHelperChart(int tf)
+{
+   long existing[64];
+   ArrayInitialize(existing, 0);
+   int existingCount = 0;
+   long chart = ChartFirst();
+   while (chart >= 0 && existingCount < 64)
+   {
+      existing[existingCount++] = chart;
+      chart = ChartNext(chart);
+   }
+
+   ResetLastError();
+   long opened = ChartOpen(Symbol(), tf);
+   if (opened != 0) return opened;
+   int openError = GetLastError();
+
+   int scanned = 0;
+   chart = ChartFirst();
+   while (chart >= 0 && scanned < 64)
+   {
+      bool wasOpen = false;
+      for (int i = 0; i < existingCount; i++)
+      {
+         if (existing[i] == chart)
+         {
+            wasOpen = true;
+            break;
+         }
+      }
+      if (!wasOpen && ChartSymbol(chart) == Symbol() && ChartPeriod(chart) == tf)
+      {
+         Print(">>> [Vision] ChartOpen vrati 0, no prozorec postoi -> go preziam id=", chart);
+         return chart;
+      }
+      chart = ChartNext(chart);
+      scanned++;
+   }
+   Print(">>> [Vision] ChartOpen FAIL za ", TimeframeToString(tf), " err=", openError);
+   return 0;
 }
 
 void AIVisionOpenCharts()
@@ -9467,19 +9540,23 @@ void AIVisionOpenCharts()
 
          // 2) Nema takov chart -> otvori nov (markiran, ke go zatvorime po shot/deinit).
          owned = true;
-         cid = ChartOpen(Symbol(), tf);
-         if (cid == 0)
-         {
-            Print(">>> [Vision] ChartOpen FAIL za ", tok, " err=", GetLastError());
-            continue;
-         }
+         cid = VisionOpenHelperChart(tf);
+         if (cid == 0) continue;
+         VisionOwnedRegister(cid, true);
          ChartSetString (cid, CHART_COMMENT, VIS_TAG + " " + TimeframeToString(tf));
          ChartSetInteger(cid, CHART_SHOW_GRID,       false);
          ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
          ChartSetInteger(cid, CHART_AUTOSCROLL,      true);
          ChartSetInteger(cid, CHART_SHIFT,           true);
          ChartRedraw(cid);
-         if (!ChatVisionWaitChart(cid, tf))
+         bool chartReady = ChatVisionWaitChart(cid, tf);
+         ChartSetString (cid, CHART_COMMENT, VIS_TAG + " " + TimeframeToString(tf));
+         ChartSetInteger(cid, CHART_SHOW_GRID,       false);
+         ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
+         ChartSetInteger(cid, CHART_AUTOSCROLL,      true);
+         ChartSetInteger(cid, CHART_SHIFT,           true);
+         ChartRedraw(cid);
+         if (!chartReady)
             Print(">>> [Vision] Chartot ne se vcita celosno za ", tok, ".");
       }
       g_visChart[g_visCount]  = cid;
@@ -9505,12 +9582,17 @@ bool AIVisionChartExists(long cid)
 bool AIVisionCloseOwnedChart(long cid, string label)
 {
    if (cid <= 0 || cid == ChartID()) return false;
-   if (!AIVisionChartExists(cid)) return true;
+   if (!AIVisionChartExists(cid))
+   {
+      VisionOwnedForget(cid);
+      return true;
+   }
    if (!ChartClose(cid))
    {
       Print(">>> [Vision] ChartClose FAIL ", label, " err=", GetLastError());
       return false;
    }
+   VisionOwnedForget(cid);
    Print(">>> [Vision] zatvoren ", label);
    return true;
 }
@@ -18681,52 +18763,76 @@ int ChatVisionSweepTemps()
       if (ids[i] == ChartID()) continue;
       string cm = ChartGetString(ids[i], CHART_COMMENT);
       if (StringFind(cm, CHAT_VISION_TAG, 0) < 0) continue;
-      ChartClose(ids[i]);
+      if (ChartClose(ids[i])) VisionOwnedForget(ids[i]);
       closed++;
    }
    if (closed > 0) Print("TraceChat VISION: zatvoreni ", closed, " zaostanati privremeni chartovi.");
    return closed;
 }
 
-void ChatVisionJanitorTick()
+void ChatVisionJanitorTick(bool force)
 {
    static datetime lastPass = 0;
    static long previous[64];
    static int previousCount = 0;
+   if (Chat_VisionJanitorSec <= 0) return;
    datetime now = TimeLocal();
-   if (lastPass > 0 && now - lastPass < Chat_VisionJanitorSec) return;
+   if (!force && lastPass > 0 && now - lastPass < Chat_VisionJanitorSec) return;
    lastPass = now;
+
+   long charts[64];
+   ArrayInitialize(charts, 0);
+   int chartCount = 0;
+   long chart = ChartFirst();
+   while (chart >= 0 && chartCount < 64)
+   {
+      charts[chartCount++] = chart;
+      chart = ChartNext(chart);
+   }
 
    long current[64];
    ArrayInitialize(current, 0);
    int currentCount = 0;
-   int scanned = 0;
-   long cid = ChartFirst();
-   while (cid >= 0 && scanned < 64)
+   int closed = 0;
+   for (int ci = 0; ci < chartCount; ci++)
    {
-      if (cid != ChartID())
+      long cid = charts[ci];
+      if (cid == ChartID()) continue;
+
+      bool activeVision = false;
+      for (int vis = 0; vis < g_visCount; vis++)
       {
-         string comment = ChartGetString(cid, CHART_COMMENT);
-         bool candidate = (StringFind(comment, CHAT_VISION_TAG, 0) >= 0) ||
-                          (AI_VisionCloseAfterShot &&
-                           StringFind(comment, VIS_TAG, 0) >= 0);
-         bool activeVision = false;
-         for (int vis = 0; vis < g_visCount; vis++)
+         if (g_visChart[vis] == cid)
          {
-            if (g_visChart[vis] == cid)
+            activeVision = true;
+            break;
+         }
+      }
+      if (activeVision) continue;
+
+      string comment = ChartGetString(cid, CHART_COMMENT);
+      bool candidate = (StringFind(comment, CHAT_VISION_TAG, 0) >= 0) ||
+                       (AI_VisionCloseAfterShot &&
+                        StringFind(comment, VIS_TAG, 0) >= 0);
+      if (VisionOwnedIsRegistered(cid) && ChartSymbol(cid) == Symbol())
+      {
+         double registeredAt = GlobalVariableGet(VisionOwnedKey(cid));
+         bool eyeChart = (registeredAt < 0.0);
+         double age = (double)now - MathAbs(registeredAt);
+         if (age > Chat_VisionJanitorSec && !(eyeChart && !AI_VisionCloseAfterShot))
+         {
+            if (ChartClose(cid))
             {
-               activeVision = true;
-               break;
+               VisionOwnedForget(cid);
+               closed++;
+               continue;
             }
          }
-         if (candidate && !activeVision && currentCount < 64)
-            current[currentCount++] = cid;
       }
-      cid = ChartNext(cid);
-      scanned++;
+      if (candidate && currentCount < 64)
+         current[currentCount++] = cid;
    }
 
-   int closed = 0;
    for (int i = 0; i < currentCount; i++)
    {
       bool seenPrevious = false;
@@ -18738,13 +18844,27 @@ void ChatVisionJanitorTick()
             break;
          }
       }
-      if (seenPrevious && ChartClose(current[i])) closed++;
+      if (seenPrevious && ChartClose(current[i]))
+      {
+         VisionOwnedForget(current[i]);
+         closed++;
+      }
    }
    if (closed > 0)
       Print(">>> [Vision] Janitor zatvori ", closed, " zaostanati prozorci");
    for (int save = 0; save < currentCount; save++)
       previous[save] = current[save];
    previousCount = currentCount;
+
+   string prefix = "TraceVisOwned_";
+   for (int gv = GlobalVariablesTotal() - 1; gv >= 0; gv--)
+   {
+      string name = GlobalVariableName(gv);
+      if (StringFind(name, prefix, 0) != 0) continue;
+      long ownedId = (long)StringToInteger(StringSubstr(name, StringLen(prefix)));
+      if (ownedId <= 0 || !AIVisionChartExists(ownedId))
+         GlobalVariableDel(name);
+   }
 }
 
 bool ChatVisionDrawDailyLevels(long cid)
@@ -18960,6 +19080,40 @@ void ChatVisionRebuildFromDisk()
    }
 }
 
+void ChatVisionStyleTemp(long cid)
+{
+   if (StringLen(Chat_VisionTemplate) > 0)
+   {
+      if (!ChartApplyTemplate(cid, Chat_VisionTemplate))
+         Print("TraceChat VISION: template ne se vcita err=", GetLastError());
+   }
+   else if (Chat_VisionCleanChart)
+   {
+      ChartSetInteger(cid, CHART_MODE, CHART_CANDLES);
+      ChartSetInteger(cid, CHART_COLOR_BACKGROUND, clrBlack);
+      ChartSetInteger(cid, CHART_COLOR_FOREGROUND, clrWhite);
+      ChartSetInteger(cid, CHART_SHOW_OHLC, false);
+      ChartSetInteger(cid, CHART_SHOW_GRID, false);
+      ChartSetInteger(cid, CHART_SHOW_VOLUMES, false);
+      ChartSetInteger(cid, CHART_SHOW_ASK_LINE, false);
+      ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, false);
+      ChartSetInteger(cid, CHART_COLOR_CANDLE_BULL, clrLime);
+      ChartSetInteger(cid, CHART_COLOR_CANDLE_BEAR, clrRed);
+      ChartSetInteger(cid, CHART_COLOR_CHART_UP, clrLime);
+      ChartSetInteger(cid, CHART_COLOR_CHART_DOWN, clrRed);
+      ChartSetInteger(cid, CHART_COLOR_CHART_LINE, clrWhite);
+      ChartSetInteger(cid, CHART_AUTOSCROLL, true);
+      ChartSetInteger(cid, CHART_SHIFT, true);
+   }
+   else
+   {
+      ChartSetInteger(cid, CHART_SHOW_GRID, false);
+      ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
+      ChartSetInteger(cid, CHART_AUTOSCROLL, true);
+      ChartSetInteger(cid, CHART_SHIFT, true);
+   }
+}
+
 string ChatVisionCapture()
 {
    if (!Chat_Vision) return "";
@@ -19142,43 +19296,19 @@ string ChatVisionCapture()
          bool temporaryOwned = false;
          if (allowOpenMissing && chartTotal <= 20 && missingTf != 0 && g_chatVisionCount < maxShots)
          {
-            long temporary = ChartOpen(Symbol(), missingTf);
+            long temporary = VisionOpenHelperChart(missingTf);
             if (temporary != 0 && temporary != ChartID())
             {
                temporaryOwned = true;
-               if (StringLen(Chat_VisionTemplate) > 0)
-               {
-                  if (!ChartApplyTemplate(temporary, Chat_VisionTemplate))
-                     Print("TraceChat VISION: template ne se vcita za ", missing,
-                           " err=", GetLastError());
-               }
-               else if (Chat_VisionCleanChart)
-               {
-                  ChartSetInteger(temporary, CHART_MODE, CHART_CANDLES);
-                  ChartSetInteger(temporary, CHART_COLOR_BACKGROUND, clrBlack);
-                  ChartSetInteger(temporary, CHART_COLOR_FOREGROUND, clrWhite);
-                  ChartSetInteger(temporary, CHART_SHOW_OHLC, false);
-                  ChartSetInteger(temporary, CHART_SHOW_GRID, false);
-                  ChartSetInteger(temporary, CHART_SHOW_VOLUMES, false);
-                  ChartSetInteger(temporary, CHART_SHOW_ASK_LINE, false);
-                  ChartSetInteger(temporary, CHART_SHOW_PERIOD_SEP, false);
-                  ChartSetInteger(temporary, CHART_COLOR_CANDLE_BULL, clrLime);
-                  ChartSetInteger(temporary, CHART_COLOR_CANDLE_BEAR, clrRed);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_UP, clrLime);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_DOWN, clrRed);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_LINE, clrWhite);
-                  ChartSetInteger(temporary, CHART_AUTOSCROLL, true);
-                  ChartSetInteger(temporary, CHART_SHIFT, true);
-               }
-               else
-               {
-                  ChartSetInteger(temporary, CHART_SHOW_GRID, false);
-                  ChartSetInteger(temporary, CHART_SHOW_PERIOD_SEP, true);
-                  ChartSetInteger(temporary, CHART_AUTOSCROLL, true);
-                  ChartSetInteger(temporary, CHART_SHIFT, true);
-               }
+               VisionOwnedRegister(temporary);
+               ChatVisionStyleTemp(temporary);
                ChartSetString(temporary, CHART_COMMENT, CHAT_VISION_TAG + " " + missing);
-               if (ChatVisionWaitChart(temporary, missingTf))
+               ChartRedraw(temporary);
+               bool temporaryReady = ChatVisionWaitChart(temporary, missingTf);
+               ChatVisionStyleTemp(temporary);
+               ChartSetString(temporary, CHART_COMMENT, CHAT_VISION_TAG + " " + missing);
+               ChartRedraw(temporary);
+               if (temporaryReady)
                {
                   bool levelsDrawn = ChatVisionDrawDailyLevels(temporary);
                   string temporaryFile = "TraceAI\\chatshot_" + missing + ".png";

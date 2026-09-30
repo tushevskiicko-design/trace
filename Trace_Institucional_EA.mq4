@@ -447,6 +447,7 @@ input string Input_ZoneResync              = "Zone Auto-Resync------------";
 input bool   Zone_AutoResync               = true;
 input int    Zone_ResyncMinutes            = 5;
 input int    Zone_ResyncTradeMaxBars       = 3;      // resync-detected zone whose breakout is <= this many bars old is treated as live (trade + Telegram); 0 = never
+input string Zone_MinGrade                 = "C";      // Min dashboard grade (S/A/B/C/D) for zone entries (ImmediateEntry/AutoTrade); "" = off. "C" blocks only grade D
 
 input string Input_Watchdog                = "Watchdog / Anti-Sleep------------";
 input bool   Use_Watchdog                  = true;
@@ -456,7 +457,7 @@ input int    WD_CooldownSec                = 30;    // po bavan AI/Chat blok, pa
 input int    WD_TimerReviveSec             = 30;    // ako OnTimer ne se javil tolku dolgo, re-armiraj EventSetTimer
 
 input string Input_Trade                   = "SL & TP Settings------------";
-input double Risk_Reward_Ratio             = 4.0;
+input double Risk_Reward_Ratio             = 7.0;
 input int    SL_Buffer_Points              = 30;
 input bool   Show_SL_TP_Lines              = true;
 input bool   Show_Price_Labels             = true;
@@ -661,14 +662,14 @@ input bool   Chat_PlanFixSL               = true;  // Pomesti SL nad/pod posledn
 input double Chat_PlanMinSLATR            = 1.00;  // Minimalno rastojanie entry->SL vo ATR (na scout TF)
 input int    Chat_PlanSLSwingBars         = 12;    // Kolku sveki nazad se gleda swing high/low
 input double Chat_PlanSLBufferATR         = 0.15;  // Buffer nad swing vo ATR (plus spread)
-input double Chat_PlanMinRR               = 1.50;  // Po SL popravkata: pod ovoj RR e samo WATCH, ne signal
+input double Chat_PlanMinRR                = 1.50;  // Po SL popravkata: pod ovoj RR e samo WATCH, ne signal
 input bool   Chat_PlanSendSLRule           = true;   // Prati mu ja EA SL pravilata na PLAN/SCOUT
-input bool   Chat_PlanRetargetTP           = true;   // Pri pomesten SL preracunaj TP
+input bool   Chat_PlanRetargetTP           = false;  // Pri pomesten SL preracunaj TP
 input double Chat_PlanTargetRR             = 2.00;   // Ciljan RR pri TP retarget
-input double Chat_PlanMaxSLATR             = 6.00;   // Maksimalen rizik vo ATR
+input double Chat_PlanMaxSLATR             = 3.00;   // Maksimalen rizik vo ATR
 input double Chat_PlanMaxTPATR             = 14.00;  // Maksimalna dalecina na TP vo ATR
-input bool   Chat_TP1DailyLevelGuard      = true;   // Priblizi TP1 pred dnevno nivo (bufferot e vo USD)
-input double Chat_TP1DailyLevelBufferUSD  = 1.50;   // Buffer pred dnevno nivo vo USD (1 poen kaj korisnikot = 0.01 USD)
+input bool   Chat_TP1DailyLevelGuard       = true;   // Priblizi TP1 pred dnevno nivo (bufferot e vo USD)
+input double Chat_TP1DailyLevelBufferUSD   = 1.50;   // Buffer pred dnevno nivo vo USD (1 poen kaj korisnikot = 0.01 USD)
 input bool   Chat_FallbackNoTradeProse     = true;   // Prepoznaj jasen NO_TRADE odgovor vo sloboden tekst
 input bool   Chat_InvalidReplyDiagnostics  = true;   // Zapishi del od neparsiran AI odgovor vo INVALID CSV red
 input bool   Chat_StatsDisplayFix          = true;   // Prikazi n/a i broj primeroci; ignoriraj WATCH vo last10
@@ -676,7 +677,7 @@ input bool   Chat_SendEaScore              = false;  // false = NE mu go prakjam
 input bool   Chat_TuneEnable               = true;
 input int    Chat_TuneMinGapSec            = 86400;   // TUNE e samo sovet za podesuvanja
 input bool   Chat_ScoutLocalPreGate        = true;   // Evtini lokalni proverki pred AI
-input double Chat_ScoutPreMinADX          = 14.0;    // Minimum ADX za SCOUT AI povik
+input double Chat_ScoutPreMinADX           = 14.0;    // Minimum ADX za SCOUT AI povik
 input color  Chat_TuneColor                = clrOrange;
 input bool   Chat_Vision                   = true;
 input string Chat_VisionTFs                = "M5,M15,H1";
@@ -693,6 +694,7 @@ input bool   Chat_VisionOwnCharts          = true;   // Chat vision koristi sops
 input bool   Chat_VisionCleanChart         = true;   // Cist stil za privremenite chat vision chartovi
 input string Chat_VisionTemplate           = "";     // Opcionen .tpl za privremenite chat vision chartovi
 input bool   Chat_VisionDrawLevels         = true;   // Dnevni nivoa na privremenite chat vision chartovi
+input int    Chat_VisionJanitorSec         = 60;     // Zatvori zaostanati TRACEAI vision prozorci postari od ova (sekundi). 0 = iskluceno
 input bool   Chat_FeedbackEnable           = true;   // Prakjaj razbieni statistiki (nasoka/sesija/confidence) do AI
 input int    Chat_FeedbackMinSamples       = 6;      // Min zatvoreni planovi vo grupa za da se smeta za dokaz
 input double Chat_FeedbackWeakWinPct       = 40.0;   // Pod ovoj win% grupata e SLABA -> AI mora da e pokonzervativen
@@ -701,6 +703,9 @@ input int    Chat_TriggerMaxMin            = 120;    // Kolku minuti vazi armira
 input double Chat_TriggerMinRR             = 1.00;   // Pod ovoj RR (po SL popravka) triggerot ne se armira
 input bool   Chat_TriggerAlert             = true;   // Alert koga uslovot ke se ispolni
 input bool   Chat_TriggerTelegram          = true;  // Telegram koga uslovot ke se ispolni
+input bool   Chat_SignalOnTriggerOnly      = true;   // SCOUT/AUTO PLAN: AI odgovorot e samo IDEJA; SIGNAL (Alert/Telegram) odi samo koga TRIGGER ke se ispolni i ke pomine proverka
+input bool   Chat_IdeaTelegram             = false;  // Prati i IDEJA/OTKAZAN poraka na Telegram (false = samo potvrden SIGNAL)
+input double Chat_TriggerMaxChaseATR       = 1.00;   // Pri trigger: otkazi ako cenata e podaleku od entry od ova x ATR (scout TF). 0 = iskluceno
 input bool   Use_BreakEven                 = true;
 input double BE_TriggerRR                  = 1.00;   // move SL to BE after this much R in profit
 input double BE_LockPoints                 = 10;
@@ -768,8 +773,8 @@ input double Sell_MinBodyRatio             = 0.55;
 
 input string Input_Telegram                = "Telegram Settings------------";
 input bool   EnableTelegram                = true; 
-input string TelegramBotToken              = "";
-input string TelegramChatID                = "";
+input string TelegramBotToken              = "8252515615:AAGnatAWOLFw5qu3kypilFcEaqOR8mXvBcg";
+input string TelegramChatID                = "5194041218";
 input bool   DebugMode                     = true;
 
 input string Input_Dash                    = "Dashboard------------";
@@ -1039,6 +1044,7 @@ double   g_trigTP2     = 0.0;
 double   g_trigRR      = 0.0;
 double   g_trigConf    = 0.0;
 string   g_trigText    = "";
+bool     g_trigRecordOnFire = false;
 int      g_chatPlanIdNext = 1;
 int      g_chatPlanId[];
 string   g_chatPlanSymbol[];
@@ -1290,6 +1296,8 @@ bool     AIVisionClaimLock();
 void     AIVisionReleaseLock();
 string   AIVisionLockName();
 string   AIVisionCapture(bool automatic = false);
+bool     AIVisionShotDue();
+bool     ZoneGradeAllowed(string &why);
 void     AIComputeGate();
 string   DetectMarketRegime(string &why);
 bool     PassFinalSignalJudge(int scoutDir, double entry, double sl, double tp2,
@@ -1380,8 +1388,16 @@ string   ChatTuneD(string name, double value);
 string   ChatTuneS(string name, string value);
 string   ChatSanitize(string text);
 string   ChatVisionCapture();
+void     ChatVisionJanitorTick(bool force = false);
+string   VisionOwnedKey(long cid);
+void     VisionOwnedRegister(long cid, bool isEye = false);
+void     VisionOwnedForget(long cid);
+bool     VisionOwnedIsRegistered(long cid);
+long     VisionOpenHelperChart(int tf);
+void     ChatVisionStyleTemp(long cid);
 bool     ChatVisionWaitChart(long cid, int tf);
 bool     ChatVisionIsOwnedChart(long cid);
+int      ChatVisionSweepTemps();
 bool     ChatVisionDrawDailyLevels(long cid);
 string   ChatVisionJson();
 bool     ChatReadVisionShot(string file, uchar &data[]);
@@ -1404,9 +1420,10 @@ string   ChatPlanBucket(string label, int win, int loss);
 string   ChatTriggerTypeName(int type);
 string   ChatTriggerDescribe();
 bool     ChatTriggerParse(string raw, int &type, double &level, int &tf);
-void     ChatTriggerArm(string setup, string raw, double entry, double sl,
+bool     ChatTriggerArm(string setup, string raw, double entry, double sl,
                         double tp1, double tp2, double rr, double conf);
 void     ChatTriggerDisarm(string why);
+bool     ChatTriggerRecheck(double &entryNow, double &rrNow, string &why);
 void     ChatTriggerCheck();
 void     ChatTriggerSave();
 void     ChatTriggerLoad();
@@ -1644,6 +1661,9 @@ int OnInit()
    g_visCount = 0;      g_visFiles = "";  g_visShotTime = 0;  g_visShotLocal = 0;
    g_chatVisionCount = 0;  g_chatVisionShotLocal = 0;
    for (int vz0 = 0; vz0 < 4; vz0++) { g_visChart[vz0] = 0; g_visOwned[vz0] = false; }
+   if ((Chat_Enable || AI_VisionEyes) && !IsTesting() && !IsOptimization() &&
+       Chat_VisionJanitorSec > 0)
+      ChatVisionJanitorTick(true);
    g_lastLoggedSigKey = "";
    for (int mz0 = 0; mz0 < MTF_N; mz0++) { g_mtfName[mz0] = ""; g_mtfBias[mz0] = ""; }
    Print(">>> [Plan B] EA INIT: AI_Enable=", (AI_Enable ? "true" : "false"),
@@ -1928,6 +1948,9 @@ void OnTimer()
       ChatScoutOnTimer();
       WD_NoteBlock("ChatScout", wdChatScout);
    }
+   if ((Chat_Enable || AI_VisionEyes) && !IsTesting() && !IsOptimization() &&
+       Chat_VisionJanitorSec > 0)
+      ChatVisionJanitorTick();
    if (Chat_Enable) ChatTriggerCheck();
    WD_Heartbeat("timer");
 }
@@ -7734,7 +7757,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
    ObjectSetInteger(0, rectName, OBJPROP_COLOR, markerColor);
    ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_DOT);
    ObjectSetInteger(0, rectName, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, rectName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
    ObjectSetInteger(0, rectName, OBJPROP_FILL, false);
    ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, rectName, OBJPROP_HIDDEN, false);
@@ -7747,7 +7770,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
                     (orderType == OP_BUY) ? 233 : 234);
    ObjectSetInteger(0, arrowName, OBJPROP_COLOR, markerColor);
    ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 2);
-   ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, arrowName, OBJPROP_BACK, true);
    ObjectSetInteger(0, arrowName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, arrowName, OBJPROP_HIDDEN, false);
 
@@ -7764,7 +7787,7 @@ void DrawImmediateTradeMarker(ZoneInfo &zone, int marketTicket,
    ObjectSetInteger(0, textName, OBJPROP_ANCHOR,
                     (orderType == OP_BUY) ? ANCHOR_LEFT_LOWER
                                           : ANCHOR_LEFT_UPPER);
-   ObjectSetInteger(0, textName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, textName, OBJPROP_BACK, true);
    ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, textName, OBJPROP_HIDDEN, false);
    Print("ImmediateEntry marker drawn for zone ", zone.uniqueID,
@@ -7816,6 +7839,13 @@ void ImmediateEntry(ZoneInfo &zone, bool firstDetection)
             zone.uniqueID, ": ImmediateEntry is not trade-blocked by volume divergence");
    }
    if (!ImmediateZoneIsRecent(zone)) return;
+
+   string gradeWhy = "";
+   if (!ZoneGradeAllowed(gradeWhy))
+   {
+      Print("ImmediateEntry BLOCKED zone ", zone.uniqueID, ": ", gradeWhy);
+      return;
+   }
 
    RefreshRates();
    int type = (zone.zoneType == "Bull") ? OP_BUY : OP_SELL;
@@ -7993,6 +8023,13 @@ void AttemptAutoTrade(ZoneInfo &zone, int tradeShift = 0)
    if (AutoTrade_RespectTimeFilter && !IsTradingAllowed()) return;
    
    if (AutoTrade_CurrentChartTFOnly && zone.timeframe != Period()) return;
+
+   string gradeWhy = "";
+   if (!ZoneGradeAllowed(gradeWhy))
+   {
+      Print("AttemptAutoTrade BLOCKED zone ", zone.uniqueID, ": ", gradeWhy);
+      return;
+   }
 
    int type = (zone.zoneType == "Bull") ? OP_BUY : OP_SELL;
 
@@ -8695,6 +8732,15 @@ int AIGradeRank(string g)
    return 0;
 }
 
+bool ZoneGradeAllowed(string &why)
+{
+   string minGrade = Zone_MinGrade; StringTrimLeft(minGrade); StringTrimRight(minGrade); StringToUpper(minGrade);
+   if (StringLen(minGrade) == 0) return true;
+   if (AIGradeRank(g_sigCachedGrade) >= AIGradeRank(minGrade)) return true;
+   why = "grade " + g_sigCachedGrade + " < Zone_MinGrade " + minGrade;
+   return false;
+}
+
 // Vrakja 1/-1/0 za daden TF od MTF cache. dir==0 znaci "nema podatok ili FLAT".
 int AIMtfDir(string tf)
 {
@@ -9293,8 +9339,8 @@ int AIVisionSweepOrphans(long keepCid)
    for (int i = 0; i < n; i++)
    {
       if (ids[i] == ChartID() || ids[i] == keepCid) continue;
-      if (!AIVisionIsOurs(ids[i])) continue;
-      ChartClose(ids[i]);
+      if (!ChatVisionIsOwnedChart(ids[i])) continue;
+      if (ChartClose(ids[i])) VisionOwnedForget(ids[i]);
       closed++;
    }
    if (closed > 0) Print(">>> [Vision] Zatvoreni ", closed, " zaostanati EYE charts.");
@@ -9331,6 +9377,70 @@ void AIVisionReleaseLock()
    string ln = AIVisionLockName();
    if (GlobalVariableCheck(ln) && (long)GlobalVariableGet(ln) == ChartID())
       GlobalVariableDel(ln);
+}
+
+string VisionOwnedKey(long cid)
+{
+   return "TraceVisOwned_" + StringFormat("%I64d", cid);
+}
+
+void VisionOwnedRegister(long cid, bool isEye)
+{
+   if (cid <= 0) return;
+   double stamp = (double)TimeLocal();
+   GlobalVariableSet(VisionOwnedKey(cid), isEye ? -stamp : stamp);
+}
+
+void VisionOwnedForget(long cid)
+{
+   if (cid > 0) GlobalVariableDel(VisionOwnedKey(cid));
+}
+
+bool VisionOwnedIsRegistered(long cid)
+{
+   return (cid > 0 && GlobalVariableCheck(VisionOwnedKey(cid)));
+}
+
+long VisionOpenHelperChart(int tf)
+{
+   long existing[64];
+   ArrayInitialize(existing, 0);
+   int existingCount = 0;
+   long chart = ChartFirst();
+   while (chart >= 0 && existingCount < 64)
+   {
+      existing[existingCount++] = chart;
+      chart = ChartNext(chart);
+   }
+
+   ResetLastError();
+   long opened = ChartOpen(Symbol(), tf);
+   if (opened != 0) return opened;
+   int openError = GetLastError();
+
+   int scanned = 0;
+   chart = ChartFirst();
+   while (chart >= 0 && scanned < 64)
+   {
+      bool wasOpen = false;
+      for (int i = 0; i < existingCount; i++)
+      {
+         if (existing[i] == chart)
+         {
+            wasOpen = true;
+            break;
+         }
+      }
+      if (!wasOpen && ChartSymbol(chart) == Symbol() && ChartPeriod(chart) == tf)
+      {
+         Print(">>> [Vision] ChartOpen vrati 0, no prozorec postoi -> go preziam id=", chart);
+         return chart;
+      }
+      chart = ChartNext(chart);
+      scanned++;
+   }
+   Print(">>> [Vision] ChartOpen FAIL za ", TimeframeToString(tf), " err=", openError);
+   return 0;
 }
 
 void AIVisionOpenCharts()
@@ -9430,19 +9540,23 @@ void AIVisionOpenCharts()
 
          // 2) Nema takov chart -> otvori nov (markiran, ke go zatvorime po shot/deinit).
          owned = true;
-         cid = ChartOpen(Symbol(), tf);
-         if (cid == 0)
-         {
-            Print(">>> [Vision] ChartOpen FAIL za ", tok, " err=", GetLastError());
-            continue;
-         }
+         cid = VisionOpenHelperChart(tf);
+         if (cid == 0) continue;
+         VisionOwnedRegister(cid, true);
          ChartSetString (cid, CHART_COMMENT, VIS_TAG + " " + TimeframeToString(tf));
          ChartSetInteger(cid, CHART_SHOW_GRID,       false);
          ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
          ChartSetInteger(cid, CHART_AUTOSCROLL,      true);
          ChartSetInteger(cid, CHART_SHIFT,           true);
          ChartRedraw(cid);
-         if (!ChatVisionWaitChart(cid, tf))
+         bool chartReady = ChatVisionWaitChart(cid, tf);
+         ChartSetString (cid, CHART_COMMENT, VIS_TAG + " " + TimeframeToString(tf));
+         ChartSetInteger(cid, CHART_SHOW_GRID,       false);
+         ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
+         ChartSetInteger(cid, CHART_AUTOSCROLL,      true);
+         ChartSetInteger(cid, CHART_SHIFT,           true);
+         ChartRedraw(cid);
+         if (!chartReady)
             Print(">>> [Vision] Chartot ne se vcita celosno za ", tok, ".");
       }
       g_visChart[g_visCount]  = cid;
@@ -9468,12 +9582,17 @@ bool AIVisionChartExists(long cid)
 bool AIVisionCloseOwnedChart(long cid, string label)
 {
    if (cid <= 0 || cid == ChartID()) return false;
-   if (!AIVisionChartExists(cid)) return true;
+   if (!AIVisionChartExists(cid))
+   {
+      VisionOwnedForget(cid);
+      return true;
+   }
    if (!ChartClose(cid))
    {
       Print(">>> [Vision] ChartClose FAIL ", label, " err=", GetLastError());
       return false;
    }
+   VisionOwnedForget(cid);
    Print(">>> [Vision] zatvoren ", label);
    return true;
 }
@@ -9556,10 +9675,24 @@ string AIVisionFilesOnDisk()
    return arr;
 }
 
+bool AIVisionShotDue()
+{
+   int shotEvery = (AI_VisionEverySec > 0) ? AI_VisionEverySec
+                                           : ((AI_ScanEverySec > 0) ? AI_ScanEverySec : 90);
+   if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
+   if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
+   long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
+   return !(g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0);
+}
+
 // Snima PNG za sekoj vision chart. Vrakja JSON array so relativni pateki.
 string AIVisionCapture(bool automatic)
 {
-   if (automatic && AiWeekendSkip()) return "";
+   if (automatic && AiWeekendSkip())
+   {
+      if (g_visCount > 0) AIVisionCloseAfterCapture();
+      return "";
+   }
    if (!AI_VisionEyes || g_visCount <= 0) return "";
 
    // THROTTLE: slikaj SAMO ednas na sekoi X sekundi. Bez ova, dva razlichni povici
@@ -9569,10 +9702,11 @@ string AIVisionCapture(bool automatic)
    if (g_visShotLocal == 0) g_visShotLocal = VisionShotStampGet("ai");
    if (StringLen(g_visFiles) == 0) g_visFiles = AIVisionFilesOnDisk();
    long shotAge = (long)TimeLocal() - (long)g_visShotLocal;
-   if (g_visShotLocal > 0 && shotAge >= 0 && shotAge < shotEvery && StringLen(g_visFiles) > 0)
+   if (!AIVisionShotDue())
    {
       Print(">>> [Vision] SHOT SKIP (throttle): slikite se stari ", shotAge, "s od ",
             shotEvery, "s -> koristam postoechki sliki.");
+      AIVisionCloseAfterCapture();
       return g_visFiles;
    }
 
@@ -10496,7 +10630,8 @@ void AIScanMarketNow()
    static bool visOpenPauseLogged = false;
    datetime visNow = TimeLocal();
    if (visNow <= 0) visNow = TimeCurrent();
-   if (AI_VisionEyes && g_visCount == 0 && !IsTesting() && !IsOptimization() &&
+   bool visWillShoot = AI_VisionEyes && (!AI_VisionOnlyOnSetup || g_gatePass) && AIVisionShotDue();
+   if (visWillShoot && g_visCount == 0 && !IsTesting() && !IsOptimization() &&
        (visOpenRetryAfter <= 0 || visNow >= visOpenRetryAfter))
    {
       AIVisionOpenCharts();
@@ -11723,7 +11858,7 @@ void DrawDailyLevel(string key, double price, color lineColor, int lineWidth,
    ObjectSetInteger(0, textName, OBJPROP_COLOR, lineColor);
    ObjectSetInteger(0, textName, OBJPROP_ANCHOR,
                     DL_LabelAbove ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
-   ObjectSetInteger(0, textName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, textName, OBJPROP_BACK, true);
    ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
 }
@@ -12059,7 +12194,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
          ObjectSetInteger(0, statusName, OBJPROP_FONTSIZE, 8);
          ObjectSetString(0, statusName, OBJPROP_FONT, "Arial");
          ObjectSetInteger(0, statusName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-         ObjectSetInteger(0, statusName, OBJPROP_BACK, false);
+         ObjectSetInteger(0, statusName, OBJPROP_BACK, true);
          ObjectSetInteger(0, statusName, OBJPROP_SELECTABLE, false);
       }
       else
@@ -12097,7 +12232,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
               ObjectSetInteger(0, liqName, OBJPROP_COLOR, clrAqua);
               ObjectSetInteger(0, liqName, OBJPROP_ANCHOR, ANCHOR_LEFT);
               ObjectSetInteger(0, liqName, OBJPROP_FONTSIZE, 8);
-              ObjectSetInteger(0, liqName, OBJPROP_BACK, false);
+              ObjectSetInteger(0, liqName, OBJPROP_BACK, true);
           }
           else
           {
@@ -12119,7 +12254,7 @@ void DrawZoneRectangle(ZoneInfo &zone, int index, bool isBull)
             ObjectSetInteger(0, volName, OBJPROP_COLOR, clrWhite);
             ObjectSetInteger(0, volName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
             ObjectSetInteger(0, volName, OBJPROP_FONTSIZE, 7);
-            ObjectSetInteger(0, volName, OBJPROP_BACK, false);
+            ObjectSetInteger(0, volName, OBJPROP_BACK, true);
          }
          else
          {
@@ -12209,6 +12344,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    if (ObjectFind(0, zone.slName) == -1)
    {
       ObjectCreate(0, zone.slName, OBJ_TREND, 0, lineStartTime, slPrice, lineEndTime, slPrice);
+      ObjectSetInteger(0, zone.slName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.slName, OBJPROP_COLOR, Color_SL);
       ObjectSetInteger(0, zone.slName, OBJPROP_WIDTH, SL_TP_Width);
       ObjectSetInteger(0, zone.slName, OBJPROP_RAY_RIGHT, false);
@@ -12218,6 +12354,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    {
       ObjectMove(0, zone.slName, 0, lineStartTime, slPrice);
       ObjectMove(0, zone.slName, 1, lineEndTime, slPrice);
+      ObjectSetInteger(0, zone.slName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.slName, OBJPROP_COLOR, Color_SL);
       ObjectSetInteger(0, zone.slName, OBJPROP_WIDTH, SL_TP_Width);
    }
@@ -12226,6 +12363,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    if (ObjectFind(0, zone.tpName) == -1)
    {
       ObjectCreate(0, zone.tpName, OBJ_TREND, 0, lineStartTime, tpPrice, lineEndTime, tpPrice);
+      ObjectSetInteger(0, zone.tpName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.tpName, OBJPROP_COLOR, Color_TP);
       ObjectSetInteger(0, zone.tpName, OBJPROP_WIDTH, SL_TP_Width);
       ObjectSetInteger(0, zone.tpName, OBJPROP_RAY_RIGHT, false);
@@ -12235,6 +12373,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
    {
       ObjectMove(0, zone.tpName, 0, lineStartTime, tpPrice);
       ObjectMove(0, zone.tpName, 1, lineEndTime, tpPrice);
+      ObjectSetInteger(0, zone.tpName, OBJPROP_BACK, true);
       ObjectSetInteger(0, zone.tpName, OBJPROP_COLOR, Color_TP);
       ObjectSetInteger(0, zone.tpName, OBJPROP_WIDTH, SL_TP_Width);
    }
@@ -12246,6 +12385,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
       if (ObjectFind(0, zone.slTextName) == -1)
       {
          ObjectCreate(0, zone.slTextName, OBJ_TEXT, 0, lineEndTime, slPrice);
+         ObjectSetInteger(0, zone.slTextName, OBJPROP_BACK, true);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_COLOR, Color_SL);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_FONTSIZE, 8);
          ObjectSetInteger(0, zone.slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
@@ -12255,11 +12395,13 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
          ObjectMove(0, zone.slTextName, 0, lineEndTime, slPrice);
       }
       ObjectSetString(0, zone.slTextName, OBJPROP_TEXT, "  SL: " + DoubleToString(slPrice, Digits));
+      ObjectSetInteger(0, zone.slTextName, OBJPROP_BACK, true);
 
       // TP Label
       if (ObjectFind(0, zone.tpTextName) == -1)
       {
          ObjectCreate(0, zone.tpTextName, OBJ_TEXT, 0, lineEndTime, tpPrice);
+         ObjectSetInteger(0, zone.tpTextName, OBJPROP_BACK, true);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_COLOR, Color_TP);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_FONTSIZE, 8);
          ObjectSetInteger(0, zone.tpTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
@@ -12269,6 +12411,7 @@ void DrawSLTPLines(ZoneInfo &zone, int index, bool isBull)
          ObjectMove(0, zone.tpTextName, 0, lineEndTime, tpPrice);
       }
       ObjectSetString(0, zone.tpTextName, OBJPROP_TEXT, "  TP: " + DoubleToString(tpPrice, Digits));
+      ObjectSetInteger(0, zone.tpTextName, OBJPROP_BACK, true);
    }
 }
 
@@ -17165,6 +17308,8 @@ bool ChatValidatePlan(string reply, string &warning)
    bool slProvided = ChatPlanNumber(ChatPlanField(normalized, "SL"), sl);
    bool tp1Provided = ChatPlanNumber(ChatPlanField(normalized, "TP1"), tp1);
    bool tp2Provided = ChatPlanNumber(ChatPlanField(normalized, "TP2"), tp2);
+   if (tp1Provided && !tp2Provided) { tp2 = tp1; tp2Provided = true; }
+   if (tp2Provided && !tp1Provided) { tp1 = tp2; tp1Provided = true; }
    bool rrProvided = ChatPlanNumber(ChatPlanField(normalized, "RR"), rr);
    bool bad = false;
    // RR e samo aritmetika - ako AI go zaokruzhi pogresno EA go presmetuva sam,
@@ -18267,11 +18412,13 @@ void ChatTriggerSave()
    GlobalVariableSet(p + "tp2",    g_trigTP2);
    GlobalVariableSet(p + "rr",     g_trigRR);
    GlobalVariableSet(p + "conf",   g_trigConf);
+   GlobalVariableSet(p + "recfire", g_trigRecordOnFire ? 1.0 : 0.0);
 }
 
 void ChatTriggerLoad()
 {
    g_trigActive = false;
+   g_trigRecordOnFire = false;
    string p = "TraceChatTrig_" + Symbol() + "_";
    if (!GlobalVariableCheck(p + "active")) return;
    if (GlobalVariableGet(p + "active") < 0.5) return;
@@ -18286,6 +18433,8 @@ void ChatTriggerLoad()
    g_trigTP2   = GlobalVariableGet(p + "tp2");
    g_trigRR    = GlobalVariableGet(p + "rr");
    g_trigConf  = GlobalVariableGet(p + "conf");
+   if (GlobalVariableCheck(p + "recfire"))
+      g_trigRecordOnFire = (GlobalVariableGet(p + "recfire") >= 0.5);
    if (g_trigType == TRIG_NONE || g_trigLevel <= 0.0) return;
    if (Chat_TriggerMinRR > 0.0 && g_trigRR > 0.0 && g_trigRR < Chat_TriggerMinRR)
    {
@@ -18314,13 +18463,13 @@ void ChatTriggerDisarm(string why)
    ChatTriggerSave();
 }
 
-void ChatTriggerArm(string setup, string raw, double entry, double sl,
+bool ChatTriggerArm(string setup, string raw, double entry, double sl,
                     double tp1, double tp2, double rr, double conf)
 {
-   if (!Chat_TriggerEnable) return;
-   if (setup != "BUY" && setup != "SELL") { ChatTriggerDisarm("nov NO_TRADE plan"); return; }
+   if (!Chat_TriggerEnable) return false;
+   if (setup != "BUY" && setup != "SELL") { ChatTriggerDisarm("nov NO_TRADE plan"); return false; }
    int type = TRIG_NONE; double level = 0.0; int tf = 0;
-   if (!ChatTriggerParse(raw, type, level, tf)) return;
+   if (!ChatTriggerParse(raw, type, level, tf)) return false;
    double effectiveRR = rr;
    if (effectiveRR <= 0.0)
       effectiveRR = ChatPlanRRCalc(entry, sl, tp2);
@@ -18334,10 +18483,11 @@ void ChatTriggerArm(string setup, string raw, double entry, double sl,
       Print("TraceChat TRIGGER ODBIEN: ", why);
       ChatAppend("TRIGGER ODBIEN: " + why, clrOrange);
       ChatScoutLog("RR_TOO_LOW", setup, conf, entry, sl, tp2, why);
-      return;
+      return false;
    }
    if (rr <= 0.0 && effectiveRR > 0.0) rr = effectiveRR;
    int maxMin = (Chat_TriggerMaxMin < 5) ? 5 : Chat_TriggerMaxMin;
+   g_trigRecordOnFire = false;
    g_trigActive  = true;
    g_trigDir     = (setup == "BUY") ? 1 : -1;
    g_trigType    = type;
@@ -18356,6 +18506,68 @@ void ChatTriggerArm(string setup, string raw, double entry, double sl,
    ChatTriggerSave();
    ChatAppend("TRIGGER armiran: " + g_trigText, clrYellow);
    Print("TraceChat TRIGGER armiran: ", g_trigText);
+   return true;
+}
+
+bool ChatTriggerRecheck(double &entryNow, double &rrNow, string &why)
+{
+   entryNow = (g_trigDir == 1) ? Ask : Bid;
+   rrNow = 0.0;
+   why = "";
+   double spread = GetSpreadPoints();
+   if (AI_GateMaxSpreadPts > 0.0 && spread > AI_GateMaxSpreadPts)
+   {
+      why = "spread=" + DoubleToString(spread, 0);
+      return false;
+   }
+   string regimeWhy = "";
+   if (DetectMarketRegime(regimeWhy) == "NEWS_BLOCK")
+   {
+      why = "NEWS_BLOCK";
+      return false;
+   }
+   bool h1ok = false;
+   int h1dir = ChatScoutPreGateDir(PERIOD_H1, h1ok);
+   if (h1ok && h1dir == -g_trigDir)
+   {
+      why = "H1 se svrte protiv";
+      return false;
+   }
+   if ((g_trigDir == 1 && entryNow <= g_trigSL) ||
+       (g_trigDir == -1 && entryNow >= g_trigSL))
+   {
+      why = "SL vekje probien";
+      return false;
+   }
+   if (g_trigTP1 > 0.0 &&
+       ((g_trigDir == 1 && entryNow >= g_trigTP1) ||
+        (g_trigDir == -1 && entryNow <= g_trigTP1)))
+   {
+      why = "TP1 vekje dostignat";
+      return false;
+   }
+   double atr = iATR(Symbol(), ChatScoutTf(), 14, 1);
+   if (atr <= 0.0) atr = Point * 50;
+   double chase = MathAbs(entryNow - g_trigEntry);
+   if (Chat_TriggerMaxChaseATR > 0.0 &&
+       chase > Chat_TriggerMaxChaseATR * atr)
+   {
+      why = "cenata izbega " + DoubleToString(chase, Digits) + " od entry";
+      return false;
+   }
+   double risk = MathAbs(entryNow - g_trigSL);
+   if (Chat_PlanMaxSLATR > 0.0 && risk > Chat_PlanMaxSLATR * atr)
+   {
+      why = "SL preshirok";
+      return false;
+   }
+   rrNow = ChatPlanRRCalc(entryNow, g_trigSL, g_trigTP2);
+   if (Chat_PlanMinRR > 0.0 && rrNow < Chat_PlanMinRR)
+   {
+      why = "RR od sega " + DoubleToString(rrNow, 2) + " < min";
+      return false;
+   }
+   return true;
 }
 
 void ChatTriggerCheck()
@@ -18395,19 +18607,42 @@ void ChatTriggerCheck()
    if (!fired) return;
 
    string dirText = (g_trigDir == 1) ? "BUY" : "SELL";
-   string msg = ChatSanitize("TRIGGER ISPOLNET: " + dirText + " " +
+   double entryNow = 0.0;
+   double rrNow = 0.0;
+   string recheckWhy = "";
+   if (!ChatTriggerRecheck(entryNow, rrNow, recheckWhy))
+   {
+      string cancelMsg = ChatSanitize("SIGNAL OTKAZAN: " + dirText + " " +
+                                      recheckWhy + " | " + g_trigText);
+      ChatAppend(cancelMsg, clrOrange);
+      Print("TraceChat ", cancelMsg);
+      ChatScoutLog("TRIGGER_CANCEL", dirText, g_trigConf, g_trigEntry,
+                   g_trigSL, g_trigTP2, recheckWhy);
+      if (Chat_IdeaTelegram) SendTelegramMessage(cancelMsg);
+      ChatTriggerDisarm("recheck: " + recheckWhy);
+      ChatRefreshStatus();
+      return;
+   }
+   string msg = ChatSanitize("SIGNAL POTVRDEN: " + dirText + " " +
                 ChatTriggerTypeName(g_trigType) + " " + DoubleToString(g_trigLevel, Digits) +
                 " " + TimeframeToString(g_trigTF) +
-                " | entry=" + DoubleToString(g_trigEntry, Digits) +
+                " | ENTRY=" + DoubleToString(entryNow, Digits) +
                 " SL=" + DoubleToString(g_trigSL, Digits) +
                 " TP1=" + DoubleToString(g_trigTP1, Digits) +
                 " TP2=" + DoubleToString(g_trigTP2, Digits) +
-                " RR=" + DoubleToString(g_trigRR, 2) +
+                " RR=" + DoubleToString(rrNow, 2) +
                 " CONF=" + DoubleToString(g_trigConf, 0));
    ChatAppend(msg, clrLime);
    if (Chat_TriggerAlert)    Alert(msg);
    if (Chat_TriggerTelegram) SendTelegramMessage(msg);
    Print("TraceChat ", msg);
+   if (g_trigRecordOnFire)
+   {
+      ChatPlanRecord(dirText, entryNow, g_trigSL, g_trigTP1, g_trigTP2,
+                     rrNow, g_trigConf);
+      ChatScoutLog("SIGNAL_CONFIRMED", dirText, g_trigConf, entryNow,
+                   g_trigSL, g_trigTP2, g_trigText);
+   }
    ChatTriggerDisarm("ispolnet");
    ChatLayout();
    ChartRedraw();
@@ -18509,6 +18744,129 @@ bool ChatVisionIsOwnedChart(long cid)
    return (AIVisionIsOurs(cid) || StringFind(comment, CHAT_VISION_TAG, 0) >= 0);
 }
 
+// Zatvora SAMO privremenite chat-vision chartovi (CHAT_VISION_TAG); EYE chartovite
+// gi zatvara nivniot sopstven pat (AIVisionCloseAfterCapture / AIVisionSweepOrphans).
+int ChatVisionSweepTemps()
+{
+   int closed = 0;
+   long ids[64];
+   ArrayInitialize(ids, -1);
+   int n = 0;
+   long c = ChartFirst();
+   while (c >= 0 && n < 64)
+   {
+      ids[n] = c; n++;
+      c = ChartNext(c);
+   }
+   for (int i = 0; i < n; i++)
+   {
+      if (ids[i] == ChartID()) continue;
+      string cm = ChartGetString(ids[i], CHART_COMMENT);
+      if (StringFind(cm, CHAT_VISION_TAG, 0) < 0) continue;
+      if (ChartClose(ids[i])) VisionOwnedForget(ids[i]);
+      closed++;
+   }
+   if (closed > 0) Print("TraceChat VISION: zatvoreni ", closed, " zaostanati privremeni chartovi.");
+   return closed;
+}
+
+void ChatVisionJanitorTick(bool force)
+{
+   static datetime lastPass = 0;
+   static long previous[64];
+   static int previousCount = 0;
+   if (Chat_VisionJanitorSec <= 0) return;
+   datetime now = TimeLocal();
+   if (!force && lastPass > 0 && now - lastPass < Chat_VisionJanitorSec) return;
+   lastPass = now;
+
+   long charts[64];
+   ArrayInitialize(charts, 0);
+   int chartCount = 0;
+   long chart = ChartFirst();
+   while (chart >= 0 && chartCount < 64)
+   {
+      charts[chartCount++] = chart;
+      chart = ChartNext(chart);
+   }
+
+   long current[64];
+   ArrayInitialize(current, 0);
+   int currentCount = 0;
+   int closed = 0;
+   for (int ci = 0; ci < chartCount; ci++)
+   {
+      long cid = charts[ci];
+      if (cid == ChartID()) continue;
+
+      bool activeVision = false;
+      for (int vis = 0; vis < g_visCount; vis++)
+      {
+         if (g_visChart[vis] == cid)
+         {
+            activeVision = true;
+            break;
+         }
+      }
+      if (activeVision) continue;
+
+      string comment = ChartGetString(cid, CHART_COMMENT);
+      bool candidate = (StringFind(comment, CHAT_VISION_TAG, 0) >= 0) ||
+                       (AI_VisionCloseAfterShot &&
+                        StringFind(comment, VIS_TAG, 0) >= 0);
+      if (VisionOwnedIsRegistered(cid) && ChartSymbol(cid) == Symbol())
+      {
+         double registeredAt = GlobalVariableGet(VisionOwnedKey(cid));
+         bool eyeChart = (registeredAt < 0.0);
+         double age = (double)now - MathAbs(registeredAt);
+         if (age > Chat_VisionJanitorSec && !(eyeChart && !AI_VisionCloseAfterShot))
+         {
+            if (ChartClose(cid))
+            {
+               VisionOwnedForget(cid);
+               closed++;
+               continue;
+            }
+         }
+      }
+      if (candidate && currentCount < 64)
+         current[currentCount++] = cid;
+   }
+
+   for (int i = 0; i < currentCount; i++)
+   {
+      bool seenPrevious = false;
+      for (int old = 0; old < previousCount; old++)
+      {
+         if (previous[old] == current[i])
+         {
+            seenPrevious = true;
+            break;
+         }
+      }
+      if (seenPrevious && ChartClose(current[i]))
+      {
+         VisionOwnedForget(current[i]);
+         closed++;
+      }
+   }
+   if (closed > 0)
+      Print(">>> [Vision] Janitor zatvori ", closed, " zaostanati prozorci");
+   for (int save = 0; save < currentCount; save++)
+      previous[save] = current[save];
+   previousCount = currentCount;
+
+   string prefix = "TraceVisOwned_";
+   for (int gv = GlobalVariablesTotal() - 1; gv >= 0; gv--)
+   {
+      string name = GlobalVariableName(gv);
+      if (StringFind(name, prefix, 0) != 0) continue;
+      long ownedId = (long)StringToInteger(StringSubstr(name, StringLen(prefix)));
+      if (ownedId <= 0 || !AIVisionChartExists(ownedId))
+         GlobalVariableDel(name);
+   }
+}
+
 bool ChatVisionDrawDailyLevels(long cid)
 {
    if (cid <= 0 || !Chat_VisionDrawLevels) return false;
@@ -18537,7 +18895,7 @@ bool ChatVisionDrawDailyLevels(long cid)
       ObjectSetInteger(cid, name, OBJPROP_COLOR, colors[i]);
       ObjectSetInteger(cid, name, OBJPROP_WIDTH, widths[i]);
       ObjectSetInteger(cid, name, OBJPROP_STYLE, STYLE_SOLID);
-      ObjectSetInteger(cid, name, OBJPROP_BACK, false);
+      ObjectSetInteger(cid, name, OBJPROP_BACK, true);
       ObjectSetInteger(cid, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(cid, name, OBJPROP_SELECTED, false);
       ObjectSetInteger(cid, name, OBJPROP_HIDDEN, true);
@@ -18719,6 +19077,40 @@ void ChatVisionRebuildFromDisk()
          g_chatVisionLevelsDrawn = false;
          break;
       }
+   }
+}
+
+void ChatVisionStyleTemp(long cid)
+{
+   if (StringLen(Chat_VisionTemplate) > 0)
+   {
+      if (!ChartApplyTemplate(cid, Chat_VisionTemplate))
+         Print("TraceChat VISION: template ne se vcita err=", GetLastError());
+   }
+   else if (Chat_VisionCleanChart)
+   {
+      ChartSetInteger(cid, CHART_MODE, CHART_CANDLES);
+      ChartSetInteger(cid, CHART_COLOR_BACKGROUND, clrBlack);
+      ChartSetInteger(cid, CHART_COLOR_FOREGROUND, clrWhite);
+      ChartSetInteger(cid, CHART_SHOW_OHLC, false);
+      ChartSetInteger(cid, CHART_SHOW_GRID, false);
+      ChartSetInteger(cid, CHART_SHOW_VOLUMES, false);
+      ChartSetInteger(cid, CHART_SHOW_ASK_LINE, false);
+      ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, false);
+      ChartSetInteger(cid, CHART_COLOR_CANDLE_BULL, clrLime);
+      ChartSetInteger(cid, CHART_COLOR_CANDLE_BEAR, clrRed);
+      ChartSetInteger(cid, CHART_COLOR_CHART_UP, clrLime);
+      ChartSetInteger(cid, CHART_COLOR_CHART_DOWN, clrRed);
+      ChartSetInteger(cid, CHART_COLOR_CHART_LINE, clrWhite);
+      ChartSetInteger(cid, CHART_AUTOSCROLL, true);
+      ChartSetInteger(cid, CHART_SHIFT, true);
+   }
+   else
+   {
+      ChartSetInteger(cid, CHART_SHOW_GRID, false);
+      ChartSetInteger(cid, CHART_SHOW_PERIOD_SEP, true);
+      ChartSetInteger(cid, CHART_AUTOSCROLL, true);
+      ChartSetInteger(cid, CHART_SHIFT, true);
    }
 }
 
@@ -18904,43 +19296,19 @@ string ChatVisionCapture()
          bool temporaryOwned = false;
          if (allowOpenMissing && chartTotal <= 20 && missingTf != 0 && g_chatVisionCount < maxShots)
          {
-            long temporary = ChartOpen(Symbol(), missingTf);
+            long temporary = VisionOpenHelperChart(missingTf);
             if (temporary != 0 && temporary != ChartID())
             {
                temporaryOwned = true;
-               if (StringLen(Chat_VisionTemplate) > 0)
-               {
-                  if (!ChartApplyTemplate(temporary, Chat_VisionTemplate))
-                     Print("TraceChat VISION: template ne se vcita za ", missing,
-                           " err=", GetLastError());
-               }
-               else if (Chat_VisionCleanChart)
-               {
-                  ChartSetInteger(temporary, CHART_MODE, CHART_CANDLES);
-                  ChartSetInteger(temporary, CHART_COLOR_BACKGROUND, clrBlack);
-                  ChartSetInteger(temporary, CHART_COLOR_FOREGROUND, clrWhite);
-                  ChartSetInteger(temporary, CHART_SHOW_OHLC, false);
-                  ChartSetInteger(temporary, CHART_SHOW_GRID, false);
-                  ChartSetInteger(temporary, CHART_SHOW_VOLUMES, false);
-                  ChartSetInteger(temporary, CHART_SHOW_ASK_LINE, false);
-                  ChartSetInteger(temporary, CHART_SHOW_PERIOD_SEP, false);
-                  ChartSetInteger(temporary, CHART_COLOR_CANDLE_BULL, clrLime);
-                  ChartSetInteger(temporary, CHART_COLOR_CANDLE_BEAR, clrRed);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_UP, clrLime);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_DOWN, clrRed);
-                  ChartSetInteger(temporary, CHART_COLOR_CHART_LINE, clrWhite);
-                  ChartSetInteger(temporary, CHART_AUTOSCROLL, true);
-                  ChartSetInteger(temporary, CHART_SHIFT, true);
-               }
-               else
-               {
-                  ChartSetInteger(temporary, CHART_SHOW_GRID, false);
-                  ChartSetInteger(temporary, CHART_SHOW_PERIOD_SEP, true);
-                  ChartSetInteger(temporary, CHART_AUTOSCROLL, true);
-                  ChartSetInteger(temporary, CHART_SHIFT, true);
-               }
+               VisionOwnedRegister(temporary);
+               ChatVisionStyleTemp(temporary);
                ChartSetString(temporary, CHART_COMMENT, CHAT_VISION_TAG + " " + missing);
-               if (ChatVisionWaitChart(temporary, missingTf))
+               ChartRedraw(temporary);
+               bool temporaryReady = ChatVisionWaitChart(temporary, missingTf);
+               ChatVisionStyleTemp(temporary);
+               ChartSetString(temporary, CHART_COMMENT, CHAT_VISION_TAG + " " + missing);
+               ChartRedraw(temporary);
+               if (temporaryReady)
                {
                   bool levelsDrawn = ChatVisionDrawDailyLevels(temporary);
                   string temporaryFile = "TraceAI\\chatshot_" + missing + ".png";
@@ -18971,6 +19339,7 @@ string ChatVisionCapture()
          }
       }
    }
+   ChatVisionSweepTemps();
    if (g_chatVisionCount > 0)
    {
       g_chatVisionShotLocal = TimeLocal();
@@ -19717,6 +20086,23 @@ void ChatScoutHandlePlan(bool ok, string answer)
       ChatScoutRedraw();
       return;
    }
+   string lowerAnswer = answer; StringToLower(lowerAnswer);
+   bool apiFailure = (StringFind(lowerAnswer, "greska:") >= 0 || StringFind(lowerAnswer, "error:") >= 0 ||
+                      StringFind(lowerAnswer, "http 4") >= 0 || StringFind(lowerAnswer, "http 5") >= 0 ||
+                      StringFind(lowerAnswer, "no credits") >= 0 || StringFind(lowerAnswer, "rate limit") >= 0 ||
+                      StringFind(lowerAnswer, "can't assist") >= 0 || StringFind(lowerAnswer, "cannot assist") >= 0 ||
+                      StringFind(lowerAnswer, "i'm sorry") >= 0);
+   if (apiFailure && StringFind(lowerAnswer, "setup") < 0)
+   {
+      g_chatScoutFailedAttempts++;
+      if (g_chatScoutFailedAttempts >= 3) g_chatScoutOfflineRetryAfter = now + 600;
+      Print("TraceChat SCOUT silent: API/model failure: ", answer);
+      ChatScoutLog("ERROR", "-", 0, 0, 0, 0, ChatSanitize(answer));
+      if (Chat_ScoutVerbose) ChatAppend("SCOUT API greshka: " + answer, clrOrange);
+      g_chatStatus = ChatScoutStatusText();
+      ChatScoutRedraw();
+      return;
+   }
    g_chatScoutFailedAttempts = 0;
    g_chatScoutOfflineRetryAfter = 0;
    if (Chat_CountOnlyAnsweredCalls)
@@ -19768,6 +20154,8 @@ void ChatScoutHandlePlan(bool ok, string answer)
    ChatPlanNumber(ChatPlanField(parseReply, "SL"), planSL);
    ChatPlanNumber(ChatPlanField(parseReply, "TP1"), planTP1);
    ChatPlanNumber(ChatPlanField(parseReply, "TP2"), planTP2);
+   if (planTP1 > 0.0 && planTP2 <= 0.0) planTP2 = planTP1;
+   if (planTP2 > 0.0 && planTP1 <= 0.0) planTP1 = planTP2;
    ChatPlanNumber(ChatPlanField(parseReply, "RR"), planRR);
    ChatPlanNumber(ChatPlanField(parseReply, "CONF"), planConf);
    double rrCalc = ChatPlanRRCalc(planEntry, planSL, planTP2);
@@ -20129,9 +20517,30 @@ void ChatScoutHandlePlan(bool ok, string answer)
          return;
       }
    }
-   ChatPlanRecord(setup, planEntry, planSL, planTP1, planTP2, planRR, planConf);
-   ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
-                  planEntry, planSL, planTP1, planTP2, planRR, planConf);
+   if (Chat_SignalOnTriggerOnly)
+   {
+      bool armed = ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
+                                  planEntry, planSL, planTP1, planTP2, planRR, planConf);
+      if (!armed)
+      {
+         Print("TraceChat SCOUT IDEA_NO_TRIGGER: ", setup,
+               " trigger ne se armira | ", scoutWhy);
+         ChatScoutLog("IDEA_NO_TRIGGER", setup, planConf, planEntry, planSL, planTP2,
+                      "trigger ne se armira | " + scoutWhy);
+         ChatAppend("SCOUT " + setup + " IDEJA bez validen TRIGGER -> nema signal", clrGray);
+         g_chatStatus = ChatScoutStatusText();
+         ChatScoutRedraw();
+         return;
+      }
+      g_trigRecordOnFire = true;
+      ChatTriggerSave();
+   }
+   else
+   {
+      ChatPlanRecord(setup, planEntry, planSL, planTP1, planTP2, planRR, planConf);
+      ChatTriggerArm(setup, ChatPlanField(parseReply, "TRIGGER"),
+                     planEntry, planSL, planTP1, planTP2, planRR, planConf);
+   }
    g_chatScoutLastDir = scoutDir;
    g_chatScoutLastEntry = planEntry;
    g_chatScoutLastSL = planSL;
@@ -20153,19 +20562,38 @@ void ChatScoutHandlePlan(bool ok, string answer)
                " RR=" + DoubleToString(planRR, 2) + " (koristi go OVOJ SL)";
    string alertText = ChatSanitize("SCOUT: " + setup + " " + levelsLine +
                                    (StringLen(eaLine) > 0 ? (" | " + eaLine) : ""));
-   ChatAppend("SCOUT:\n" + answer, clrAqua);
+   if (Chat_SignalOnTriggerOnly)
+      ChatAppend("SCOUT IDEJA (ceka potvrda): " + g_trigText + "\n" + answer, clrAqua);
+   else
+      ChatAppend("SCOUT:\n" + answer, clrAqua);
    if (promotedM15Flat)
-      ChatAppend("M15 FLAT - dozvoleno so potvrda i RR " +
-                 DoubleToString(planRR, 2), clrLime);
-   ChatAppend(levelsLine, clrAqua);
-   if (StringLen(eaLine) > 0) ChatAppend(eaLine, clrLime);
-   if (Chat_ScoutAlert) Alert(alertText);
-   if (Chat_ScoutTelegram) SendTelegramMessage(alertText);
+      ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA M15 FLAT - " : "M15 FLAT - ") +
+                 "dozvoleno so potvrda i RR " + DoubleToString(planRR, 2), clrLime);
+   ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA " : "") + levelsLine, clrAqua);
+   if (StringLen(eaLine) > 0)
+      ChatAppend((Chat_SignalOnTriggerOnly ? "IDEA " : "") + eaLine, clrLime);
+   if (Chat_SignalOnTriggerOnly)
+   {
+      if (Chat_IdeaTelegram)
+         SendTelegramMessage(ChatSanitize("IDEJA (ceka potvrda): " + setup + " " +
+                                          levelsLine + " | TRIGGER " + g_trigText));
+   }
+   else
+   {
+      if (Chat_ScoutAlert) Alert(alertText);
+      if (Chat_ScoutTelegram) SendTelegramMessage(alertText);
+   }
    g_chatStatus = ChatScoutStatusText();
-   ChatScoutLog((promotedM15Flat ? "SIGNAL_M15_FLAT" : "SIGNAL"),
-                setup, planConf, planEntry, planSL, planTP2,
-                (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
-   Print("TraceChat SCOUT YES: ", setup, " CONF=", DoubleToString(planConf, 0));
+   if (Chat_SignalOnTriggerOnly)
+      ChatScoutLog((promotedM15Flat ? "IDEA_ARMED_M15_FLAT" : "IDEA_ARMED"),
+                   setup, planConf, planEntry, planSL, planTP2,
+                   (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
+   else
+      ChatScoutLog((promotedM15Flat ? "SIGNAL_M15_FLAT" : "SIGNAL"),
+                   setup, planConf, planEntry, planSL, planTP2,
+                   (StringLen(slNote) > 0 ? (slNote + " | ") : "") + scoutWhy);
+   Print(Chat_SignalOnTriggerOnly ? "TraceChat SCOUT IDEA ARMED: " : "TraceChat SCOUT YES: ",
+         setup, " CONF=", DoubleToString(planConf, 0));
    ChatLayout();
    ChartRedraw();
 }
@@ -20308,7 +20736,8 @@ void ChatPlanRun(bool automatic, bool scout)
                         planEntry, planSL, planTP1, planTP2, planRR, planConf);
          string autoHistoryWhy = "";
          int autoNeedConf = ChatScoutRequiredConf(setup, autoHistoryWhy);
-         if (automatic && (setup == "BUY" || setup == "SELL") && planConf >= autoNeedConf)
+         if (!Chat_SignalOnTriggerOnly && automatic &&
+             (setup == "BUY" || setup == "SELL") && planConf >= autoNeedConf)
          {
             string alertText = ChatSanitize("AUTO PLAN: " + setup + " " + answer);
             if (Chat_AutoPlanAlert) Alert(alertText);

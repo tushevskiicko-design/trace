@@ -447,7 +447,7 @@ input string Input_ZoneResync              = "Zone Auto-Resync------------";
 input bool   Zone_AutoResync               = true;
 input int    Zone_ResyncMinutes            = 5;
 input int    Zone_ResyncTradeMaxBars       = 3;      // resync-detected zone whose breakout is <= this many bars old is treated as live (trade + Telegram); 0 = never
-input string Zone_MinGrade                 = "C";      // Min dashboard grade (S/A/B/C/D) for zone entries (ImmediateEntry/AutoTrade); "" = off. "C" blocks only grade D
+input string Zone_MinGrade                 = "C";      // Min dashboard grade (S/A/B/C/D) for AutoTrade zone entries (ImmediateEntry ignores it); "" = off. "C" blocks only grade D
 
 input string Input_Watchdog                = "Watchdog / Anti-Sleep------------";
 input bool   Use_Watchdog                  = true;
@@ -6901,8 +6901,17 @@ void OB_CreateZone(int tf, bool bullish, datetime pivotTime, int breakShift)
 
    // A zone found by the periodic resync replay whose breakout is still fresh is a
    // live zone that the pivot tracker missed, not history
+   // A zone missed live can be found up to one resync interval later, so the
+   // window is never shorter than Zone_ResyncMinutes on this TF
+   int resyncTradeBars = Zone_ResyncTradeMaxBars;
+   int tfSeconds = PeriodSeconds(tf);
+   if (resyncTradeBars > 0 && tfSeconds > 0)
+   {
+      int intervalBars = (MathMax(Zone_ResyncMinutes, 1) * 60 + tfSeconds - 1) / tfSeconds + 1;
+      if (intervalBars > resyncTradeBars) resyncTradeBars = intervalBars;
+   }
    bool resyncLive = g_isScanningHistory && g_obScanLookbackOverride > 0 &&
-                     Zone_ResyncTradeMaxBars > 0 && breakShift <= Zone_ResyncTradeMaxBars;
+                     resyncTradeBars > 0 && breakShift <= resyncTradeBars;
    bool liveZone = !g_isScanningHistory || resyncLive;
 
    if (bullish)
@@ -7839,13 +7848,6 @@ void ImmediateEntry(ZoneInfo &zone, bool firstDetection)
             zone.uniqueID, ": ImmediateEntry is not trade-blocked by volume divergence");
    }
    if (!ImmediateZoneIsRecent(zone)) return;
-
-   string gradeWhy = "";
-   if (!ZoneGradeAllowed(gradeWhy))
-   {
-      Print("ImmediateEntry BLOCKED zone ", zone.uniqueID, ": ", gradeWhy);
-      return;
-   }
 
    RefreshRates();
    int type = (zone.zoneType == "Bull") ? OP_BUY : OP_SELL;

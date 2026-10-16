@@ -7925,7 +7925,8 @@ void ImmediateEntry(ZoneInfo &zone, bool firstDetection)
       SendTelegramMessage(ieMsg);
    }
    RefreshRates();
-   string pendingComment = "TI_IE_PEND_" + IntegerToString(zone.uniqueID);
+   string pendingComment = "TI_IE_PEND_" + IntegerToString(zone.uniqueID) +
+                           "_" + IntegerToString(marketTicket);
    double pendingEntry = NormalizeDouble(zone.entryPrice, Digits);
    double pendingSL = NormalizeDouble(zone.stopLoss, Digits);
    double pendingTP = NormalizeDouble(zone.takeProfit, Digits);
@@ -11085,19 +11086,25 @@ void ManageZonePendings()
    }
 }
 
-bool ImmediateMarketOrderClosed(int zoneID)
+// Checks the open pool, not history: brokers rewrite the comment on close
+// ("[tp]"/"[sl]") and history depends on the Account History filter.
+// Pending comment: TI_IE_PEND_<zoneID>_<marketTicket> (older: TI_IE_PEND_<zoneID>)
+bool ImmediateMarketOrderOpen(int zoneID, int marketTicket)
 {
    string marketComment = "TI_Z" + IntegerToString(zoneID) + "_IE";
-   for (int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+   for (int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      if (!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if (OrderMagicNumber() != Magic_Number) continue;
-      if (OrderSymbol() != Symbol()) continue;
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       int ot = OrderType();
       if (ot != OP_BUY && ot != OP_SELL) continue;
-      if (StringFind(OrderComment(), marketComment) != 0) continue;
-      if (OrderCloseTime() <= 0) continue;
-      return true;
+      if (marketTicket > 0)
+      {
+         if (OrderTicket() == marketTicket) return true;
+         continue;
+      }
+      if (OrderMagicNumber() != Magic_Number) continue;
+      if (OrderSymbol() != Symbol()) continue;
+      if (StringFind(OrderComment(), marketComment) == 0) return true;
    }
    return false;
 }
@@ -11117,13 +11124,21 @@ void ManageImmediateEntryPendings()
 
       string cmt = OrderComment();
       if (StringFind(cmt, prefix) != 0) continue;
-      int zoneID = (int)StrToInteger(StringSubstr(cmt, StringLen(prefix)));
-      if (!ImmediateMarketOrderClosed(zoneID)) continue;
+      string pairPart = StringSubstr(cmt, StringLen(prefix));
+      int zoneID = (int)StrToInteger(pairPart);
+      int marketTicket = 0;
+      int sep = StringFind(pairPart, "_");
+      if (sep > 0) marketTicket = (int)StrToInteger(StringSubstr(pairPart, sep + 1));
 
       int ticket = OrderTicket();
-      if (OrderDelete(ticket) && DebugMode)
+      if (ImmediateMarketOrderOpen(zoneID, marketTicket)) continue;
+
+      if (OrderDelete(ticket))
          Print("ImmediateEntry pending deleted after paired market close: ticket #",
-               ticket, " zoneID=", zoneID);
+               ticket, " zoneID=", zoneID, " market ticket=", marketTicket);
+      else
+         Print("ImmediateEntry pending delete failed: ticket #", ticket,
+               " zoneID=", zoneID, " error=", GetLastError());
    }
 }
 

@@ -1012,6 +1012,24 @@ string   g_chatScoutArmTrigger = "";
 datetime g_chatTuneLastCall = 0;
 bool     g_chatBusy = false;
 int      g_chatTransportTimeoutMs = 0;
+// SERVER chat requests are non-blocking: ChatStartServer sends, ChatPendingPoll collects
+#define CHAT_PEND_NONE  0
+#define CHAT_PEND_ASK   1
+#define CHAT_PEND_PLAN  2
+#define CHAT_PEND_TUNE  3
+#define CHAT_PEND_WATCH 4
+int      g_chatPendKind = CHAT_PEND_NONE;
+int      g_chatPendTransport = 0;   // 1 = /ai/chat/result, 2 = chat_output.json
+int      g_chatPendId = 0;
+uint     g_chatPendStarted = 0;
+int      g_chatPendTimeoutMs = 0;
+uint     g_chatPendLastPoll = 0;
+bool     g_chatPendAutomatic = false;
+bool     g_chatPendScout = false;
+int      g_chatPendFileSize = -1;
+int      g_chatPendRawLength = 0;
+int      g_chatPendReplyId = 0;
+string   g_chatPendPrefix = "";
 bool     g_chatVisionFallback = false;
 string   g_chatVisionSkipped = "";
 int      g_chatVisionCount = 0;
@@ -1377,7 +1395,8 @@ void     ChatWatchLoad();
 void     ChatWatchSave();
 string   ChatWatchStatus(string suffix);
 string   ChatWatchStateSignature();
-bool     ChatWatchCall(string &reply);
+bool     ChatWatchCall(string &reply, bool &pending);
+void     ChatWatchHandle(bool ok, string reply);
 void     ChatPlanRun(bool automatic, bool scout = false);
 void     ChatScoutHandlePlan(bool ok, string answer);
 void     ChatTune();
@@ -1475,8 +1494,12 @@ string   ChatJsonEscape(string text);
 string   ChatJsonUnescape(string text);
 string   ChatWrap(string text);
 bool     ChatPostDirect(string question, string context, string history, string &answer, string vision = "");
-bool     ChatPostServer(string question, string context, string history, string &answer, string vision = "");
-bool     ChatFileFallback(string question, string context, string history, int requestId, string &answer, string vision = "");
+bool     ChatStartServer(int kind, string question, string context, string history, string &answer, string vision = "");
+void     ChatPendingPoll();
+void     ChatPendingComplete(bool ok, string answer);
+void     ChatAskHandle(bool ok, string answer);
+void     ChatPlanHandle(bool ok, string answer, bool automatic, bool scout);
+void     ChatTuneHandle(bool ok, string answer);
 void     ChatBuildHistory(string &history);
 void     ChatBuildGeminiHistory(string &history);
 void     ChatConversationAppend(string role, string text);
@@ -1890,6 +1913,7 @@ void OnTick()
       WD_NoteBlock("AI", wdAI);
    }
    // WAIT_FOR: lokalna proverka na armiraniot uslov - besplatno, bez API povik.
+   ChatPendingPoll();
    if (Chat_Enable) ChatTriggerCheck();
    WD_Heartbeat("tick");
 }
@@ -1951,6 +1975,7 @@ void OnTimer()
    if ((Chat_Enable || AI_VisionEyes) && !IsTesting() && !IsOptimization() &&
        Chat_VisionJanitorSec > 0)
       ChatVisionJanitorTick();
+   ChatPendingPoll();
    if (Chat_Enable) ChatTriggerCheck();
    WD_Heartbeat("timer");
 }
@@ -14655,7 +14680,7 @@ string ChatWatchStateSignature()
    return sig;
 }
 
-bool ChatWatchCall(string &reply)
+bool ChatWatchCall(string &reply, bool &pending)
 {
    string context = "";
    ChatBuildContext(context);
@@ -14669,8 +14694,9 @@ bool ChatWatchCall(string &reply)
    int oldTimeout = g_chatTransportTimeoutMs;
    g_chatTransportTimeoutMs = Chat_WatchTimeoutMs;
    bool ok = false;
+   pending = false;
    if (Chat_Mode == "DIRECT") ok = ChatPostDirect(instruction, context, "", answer);
-   else ok = ChatPostServer(instruction, context, "", answer);
+   else pending = ChatStartServer(CHAT_PEND_WATCH, instruction, context, "", answer, "");
    g_chatTransportTimeoutMs = oldTimeout;
    reply = answer;
    return ok;
@@ -14703,8 +14729,16 @@ void ChatWatchOnTimer()
    g_chatWatchLastCall = now;
    g_chatWatchCallsToday++;
    string reply = "";
-   bool ok = ChatWatchCall(reply);
+   bool pending = false;
+   bool ok = ChatWatchCall(reply, pending);
+   if (pending) return;
    g_chatBusy = false;
+   ChatWatchHandle(ok, reply);
+}
+
+void ChatWatchHandle(bool ok, string reply)
+{
+   datetime now = TimeCurrent();
    if (!ok)
    {
       g_chatStatus = ChatWatchStatus("check failed");
@@ -15268,6 +15302,8 @@ void ChatInit()
 
 void ChatDeinit()
 {
+   g_chatPendKind = CHAT_PEND_NONE;
+   g_chatBusy = false;
    string p = "TraceChat_";
    for (int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
    {
@@ -19884,8 +19920,13 @@ void ChatTune()
    ChatLayout(); ChartRedraw();
    bool ok = false;
    if (Chat_Mode == "DIRECT") ok = ChatPostDirect(instruction, context, "", answer, "");
-   else ok = ChatPostServer(instruction, context, "", answer, "");
+   else if (ChatStartServer(CHAT_PEND_TUNE, instruction, context, "", answer, "")) return;
    g_chatBusy = false;
+   ChatTuneHandle(ok, answer);
+}
+
+void ChatTuneHandle(bool ok, string answer)
+{
    if (ok) ChatAppend("TUNE:\n" + answer, Chat_TuneColor);
    else ChatAppend("TUNE: " + answer, Chat_TuneColor);
    g_chatStatus = ok ? ("Ready [" + Chat_Mode + "]") : ("Error [" + Chat_Mode + "]");
@@ -20703,8 +20744,18 @@ void ChatPlanRun(bool automatic, bool scout)
    ChatLayout(); ChartRedraw();
    bool ok = false;
    if (Chat_Mode == "DIRECT") ok = ChatPostDirect(prompt, context, "", answer, vision);
-   else ok = ChatPostServer(prompt, context, "", answer, vision);
+   else
+   {
+      g_chatPendAutomatic = automatic;
+      g_chatPendScout = scout;
+      if (ChatStartServer(CHAT_PEND_PLAN, prompt, context, "", answer, vision)) return;
+   }
    g_chatBusy = false;
+   ChatPlanHandle(ok, answer, automatic, scout);
+}
+
+void ChatPlanHandle(bool ok, string answer, bool automatic, bool scout)
+{
    Print("TraceChat PLAN raw: ", answer);
    if (scout)
    {
@@ -20957,57 +21008,9 @@ string ChatReadFileLocalUtf8(string relPath, int &fileSizeOut, int &rawLengthOut
    return raw;
 }
 
-bool ChatFileFallback(string question, string context, string history, int requestId, string &answer, string vision)
-{
-   int timeoutMs = (g_chatTransportTimeoutMs > 0) ? g_chatTransportTimeoutMs : Chat_TimeoutMs;
-   string payload = "{\"id\":" + IntegerToString(requestId) + ",\"msg\":\"" +
-                    ChatJsonEscape(question) + "\",\"context\":\"" + ChatJsonEscape(context) +
-                    "\",\"history\":[" + history + "],\"vision\":" +
-                    (StringLen(vision) > 0 ? vision : "{\"enabled\":false,\"shots\":[]}") + "}";
-   int h = FileOpen("TraceAI\\chat_input.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
-   if (h == INVALID_HANDLE)
-   {
-      answer = "Cannot write TraceAI\\chat_input.json";
-      return false;
-   }
-   FileWriteString(h, payload);
-   FileFlush(h);
-   FileClose(h);
-   Print("TraceChat file request written id=", requestId, " to TraceAI\\chat_input.json");
-   uint started = GetTickCount();
-   int lastFileSize = -1;
-   int lastRawLength = 0;
-   int lastReplyId = 0;
-   string lastPrefix = "";
-   while ((int)(GetTickCount() - started) < timeoutMs)
-   {
-      if (FileIsExist("TraceAI\\chat_output.json"))
-      {
-         string raw = ChatReadFileLocalUtf8(
-            "TraceAI\\chat_output.json", lastFileSize, lastRawLength, lastPrefix);
-         if (StringLen(raw) > 0)
-         {
-            lastReplyId = (int)ChatJsonExtractNum(raw, "replyId");
-            string reply = ChatJsonExtract(raw, "reply");
-            if (lastReplyId == requestId && StringLen(reply) > 0 &&
-                StringFind(reply, "(pending AI") != 0)
-            {
-               answer = reply;
-               return true;
-            }
-         }
-      }
-      Sleep(500);
-   }
-   Print("TraceChat file timeout DBG: size=", lastFileSize,
-         " rawLen=", lastRawLength, " first40=\"", lastPrefix,
-         "\" replyId=", lastReplyId, " expected=", requestId);
-   answer = "SERVER file timeout waiting for TraceAI\\chat_output.json. Add " +
-            "http://127.0.0.1:3000 to the WebRequest whitelist.";
-   return false;
-}
-
-bool ChatPostServer(string question, string context, string history, string &answer, string vision)
+// Sends the request and returns at once; the reply is collected by ChatPendingPoll
+// so the EA thread never sleeps while the AI answers. false = failed now (answer = error).
+bool ChatStartServer(int kind, string question, string context, string history, string &answer, string vision)
 {
    int timeoutMs = (g_chatTransportTimeoutMs > 0) ? g_chatTransportTimeoutMs : Chat_TimeoutMs;
    int requestId = (int)(GetTickCount() & 0x7fffffff);
@@ -21026,31 +21029,102 @@ bool ChatPostServer(string question, string context, string history, string &ans
    if (rc == 200)
    {
       Print("TraceChat server request accepted id=", requestId);
-      uint started = GetTickCount();
-      while ((int)(GetTickCount() - started) < timeoutMs)
+      g_chatPendTransport = 1;
+   }
+   else
+   {
+      Print("TraceChat server POST failed rc=", rc, " err=", postError);
+      int h = FileOpen("TraceAI\\chat_input.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ);
+      if (h == INVALID_HANDLE)
       {
-         char pollResp[];
-         int pollRc = AIWrGet(AI_ServerURL + "/ai/chat/result", pollResp, 5000, "127.0.0.1", "localhost");
-         if (pollRc == 200)
-         {
-            string raw = CharArrayToString(pollResp, 0, -1, CP_UTF8);
-            int replyId = (int)ChatJsonExtractNum(raw, "replyId");
-            string reply = ChatJsonExtract(raw, "reply");
-            if (replyId == requestId && StringLen(reply) > 0 &&
-                StringFind(reply, "(pending AI") != 0)
-            {
-               answer = reply;
-               return true;
-            }
-         }
-         Sleep(500);
+         answer = "Cannot write TraceAI\\chat_input.json";
+         return false;
       }
+      FileWriteString(h, body);
+      FileFlush(h);
+      FileClose(h);
+      Print("TraceChat file request written id=", requestId, " to TraceAI\\chat_input.json");
+      g_chatPendTransport = 2;
+      g_chatPendFileSize = -1;
+      g_chatPendRawLength = 0;
+      g_chatPendReplyId = 0;
+      g_chatPendPrefix = "";
+   }
+   g_chatPendKind = kind;
+   g_chatPendId = requestId;
+   g_chatPendStarted = GetTickCount();
+   g_chatPendTimeoutMs = timeoutMs;
+   g_chatPendLastPoll = 0;
+   return true;
+}
+
+void ChatPendingPoll()
+{
+   if (g_chatPendKind == CHAT_PEND_NONE) return;
+   uint nowMs = GetTickCount();
+   if (g_chatPendLastPoll != 0 && (nowMs - g_chatPendLastPoll) < 500) return;
+   g_chatPendLastPoll = nowMs;
+   if (g_chatPendTransport == 1)
+   {
+      char pollResp[];
+      int pollRc = AIWrGet(AI_ServerURL + "/ai/chat/result", pollResp, 3000, "127.0.0.1", "localhost");
+      if (pollRc == 200)
+      {
+         string raw = CharArrayToString(pollResp, 0, -1, CP_UTF8);
+         int replyId = (int)ChatJsonExtractNum(raw, "replyId");
+         string reply = ChatJsonExtract(raw, "reply");
+         if (replyId == g_chatPendId && StringLen(reply) > 0 &&
+             StringFind(reply, "(pending AI") != 0)
+         {
+            ChatPendingComplete(true, reply);
+            return;
+         }
+      }
+   }
+   else if (FileIsExist("TraceAI\\chat_output.json"))
+   {
+      string rawFile = ChatReadFileLocalUtf8("TraceAI\\chat_output.json", g_chatPendFileSize,
+                                             g_chatPendRawLength, g_chatPendPrefix);
+      if (StringLen(rawFile) > 0)
+      {
+         g_chatPendReplyId = (int)ChatJsonExtractNum(rawFile, "replyId");
+         string fileReply = ChatJsonExtract(rawFile, "reply");
+         if (g_chatPendReplyId == g_chatPendId && StringLen(fileReply) > 0 &&
+             StringFind(fileReply, "(pending AI") != 0)
+         {
+            ChatPendingComplete(true, fileReply);
+            return;
+         }
+      }
+   }
+   if ((int)(GetTickCount() - g_chatPendStarted) < g_chatPendTimeoutMs) return;
+   string answer = "";
+   if (g_chatPendTransport == 1)
       answer = "SERVER timeout waiting for /ai/chat/result. Add " +
                "http://127.0.0.1:3000 to the WebRequest whitelist.";
-      return false;
+   else
+   {
+      Print("TraceChat file timeout DBG: size=", g_chatPendFileSize,
+            " rawLen=", g_chatPendRawLength, " first40=\"", g_chatPendPrefix,
+            "\" replyId=", g_chatPendReplyId, " expected=", g_chatPendId);
+      answer = "SERVER file timeout waiting for TraceAI\\chat_output.json. Add " +
+               "http://127.0.0.1:3000 to the WebRequest whitelist.";
    }
-   Print("TraceChat server POST failed rc=", rc, " err=", postError);
-   return ChatFileFallback(question, context, history, requestId, answer, vision);
+   ChatPendingComplete(false, answer);
+}
+
+void ChatPendingComplete(bool ok, string answer)
+{
+   int kind = g_chatPendKind;
+   bool automatic = g_chatPendAutomatic;
+   bool scout = g_chatPendScout;
+   g_chatPendKind = CHAT_PEND_NONE;
+   g_chatPendTransport = 0;
+   g_chatBusy = false;
+   if (kind == CHAT_PEND_ASK) ChatAskHandle(ok, answer);
+   else if (kind == CHAT_PEND_PLAN) ChatPlanHandle(ok, answer, automatic, scout);
+   else if (kind == CHAT_PEND_TUNE) ChatTuneHandle(ok, answer);
+   else if (kind == CHAT_PEND_WATCH) ChatWatchHandle(ok, answer);
 }
 
 void ChatAsk()
@@ -21095,8 +21169,13 @@ void ChatAsk()
    bool ok = false;
    g_chatBusy = true;
    if (Chat_Mode == "DIRECT") ok = ChatPostDirect(question, context, history, answer, vision);
-   else ok = ChatPostServer(question, context, history, answer, vision);
+   else if (ChatStartServer(CHAT_PEND_ASK, question, context, history, answer, vision)) return;
    g_chatBusy = false;
+   ChatAskHandle(ok, answer);
+}
+
+void ChatAskHandle(bool ok, string answer)
+{
    if (ok) ChatAppend("AI: " + answer, Chat_AiColor);
    else ChatAppend("AI: " + answer, Chat_TextColor);
    if (StringLen(g_chatVisionSkipped) > 0) ChatAppend("Vision skipped: " + g_chatVisionSkipped, clrOrange);

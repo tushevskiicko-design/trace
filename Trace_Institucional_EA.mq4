@@ -663,6 +663,8 @@ input double Chat_PlanMinSLATR            = 1.00;  // Minimalno rastojanie entry
 input int    Chat_PlanSLSwingBars         = 12;    // Kolku sveki nazad se gleda swing high/low
 input double Chat_PlanSLBufferATR         = 0.15;  // Buffer nad swing vo ATR (plus spread)
 input double Chat_PlanMinRR                = 1.50;  // Po SL popravkata: pod ovoj RR e samo WATCH, ne signal
+input double Chat_SignalMinRR              = 2.00;  // Strog signal: signal samo ako RR >= ova (po SL popravka); pomalku od ova = nema signal
+input int    Chat_SignalMinConf            = 80;    // Strog signal: SCOUT signal samo ako AI CONF >= ova
 input bool   Chat_PlanSendSLRule           = true;   // Prati mu ja EA SL pravilata na PLAN/SCOUT
 input bool   Chat_PlanRetargetTP           = false;  // Pri pomesten SL preracunaj TP
 input double Chat_PlanTargetRR             = 2.00;   // Ciljan RR pri TP retarget
@@ -17830,7 +17832,7 @@ void ChatPlanRecord(string setup, double entry, double sl, double tp1, double tp
       double reward = MathAbs(tp2 - entry);
       double risk = MathAbs(entry - sl);
       double computedRR = (risk > 0.0) ? reward / risk : 0.0;
-      if (Chat_PlanMinRR > 0.0 && computedRR < Chat_PlanMinRR)
+      if (ChatSignalMinRR() > 0.0 && computedRR < ChatSignalMinRR())
       {
          isWatch = true;
          lowRR = true;
@@ -18243,10 +18245,15 @@ double ChatPlanRecentWinPct(int maxResolved, int &samples)
    return 100.0 * wins / samples;
 }
 
+double ChatSignalMinRR()
+{
+   return MathMax(Chat_PlanMinRR, Chat_SignalMinRR);
+}
+
 int ChatScoutRequiredConf(string setup, string &why)
 {
    why = "";
-   int need = Chat_ScoutMinConf;
+   int need = MathMax(Chat_ScoutMinConf, Chat_SignalMinConf);
    if (!Chat_FeedbackEnable) return need;
 
    int minN = (Chat_FeedbackMinSamples < 3) ? 3 : Chat_FeedbackMinSamples;
@@ -18615,7 +18622,7 @@ bool ChatTriggerRecheck(double &entryNow, double &rrNow, string &why)
       return false;
    }
    rrNow = ChatPlanRRCalc(entryNow, g_trigSL, g_trigTP2);
-   if (Chat_PlanMinRR > 0.0 && rrNow < Chat_PlanMinRR)
+   if (ChatSignalMinRR() > 0.0 && rrNow < ChatSignalMinRR())
    {
       why = "RR od sega " + DoubleToString(rrNow, 2) + " < min";
       return false;
@@ -20281,7 +20288,7 @@ void ChatScoutHandlePlan(bool ok, string answer)
       return;
    }
    if (Chat_PlanRetargetTP && Chat_PlanTargetRR > 0.0 &&
-       Chat_PlanMinRR > 0.0 && planRR > 0.0 && planRR < Chat_PlanMinRR)
+       ChatSignalMinRR() > 0.0 && planRR > 0.0 && planRR < ChatSignalMinRR())
    {
       double candidateTP2 = planEntry + scoutDir * slRiskIntegrity * Chat_PlanTargetRR;
       double candidateTP1 = planEntry + scoutDir * slRiskIntegrity;
@@ -20324,14 +20331,14 @@ void ChatScoutHandlePlan(bool ok, string answer)
       slNote += tp1DailyNote;
       Print("TraceChat SCOUT ", tp1DailyNote);
    }
-   bool rrTooLow = (Chat_PlanMinRR > 0.0 && planRR > 0.0 && planRR < Chat_PlanMinRR);
+   bool rrTooLow = (ChatSignalMinRR() > 0.0 && planRR < ChatSignalMinRR());
    string historyWhy = "";
    int minConfNeed = ChatScoutRequiredConf(setup, historyWhy);
    if (planConf < minConfNeed || rrTooLow)
    {
       bool watch = (!Chat_WatchDisableAll && Chat_ScoutWatchConf > 0 && planConf >= Chat_ScoutWatchConf);
       string lowReason = rrTooLow ? ("RR " + DoubleToString(planRR, 2) + " < " +
-                                     DoubleToString(Chat_PlanMinRR, 2) + " po SL popravka")
+                                     DoubleToString(ChatSignalMinRR(), 2) + " po SL popravka")
                                   : ("CONF " + DoubleToString(planConf, 0) + " < " +
                                      IntegerToString(minConfNeed));
       if (StringLen(historyWhy) > 0 && !rrTooLow) lowReason += " | " + historyWhy;
@@ -20722,7 +20729,7 @@ void ChatPlanRun(bool automatic, bool scout)
                  ", SELL SL >= " + DoubleToString(slRuleSell, Digits) +
                  "; max allowed risk=" + DoubleToString(Chat_PlanMaxSLATR * slRuleAtr, Digits) +
                  ". Compute RR from THAT SL and plan TP2 for RR >= " +
-                 DoubleToString(Chat_PlanMinRR, 2) + "; otherwise return NO_TRADE.\n";
+                 DoubleToString(ChatSignalMinRR(), 2) + "; otherwise return NO_TRADE.\n";
       eaSlRule += "Daily levels H/MH/M/LM/L are the chart's daily-range levels; use them as context or candidate TP targets only when structure agrees, never as guaranteed destinations or a reason alone to enter.\n";
       if (g_chatVisionLevelsDrawn)
          eaSlRule += "Screenshot lines: High=Lime, Mid-High=Orange, Mid=DodgerBlue, Low-Mid=Silver, Low=Red; these are context, not guaranteed targets.\n";
